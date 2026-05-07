@@ -46,6 +46,8 @@ def register_view(request):
         password = request.data.get('password') or request.POST.get('password')
         password2 = request.data.get('password2') or request.POST.get('password2')
         full_name = request.data.get('full_name') or request.POST.get('full_name')
+        company_name = request.data.get('company_name') or request.POST.get('company_name')
+        role = request.data.get('role') or request.POST.get('role') or 'client'
 
         if not all([email, password, password2, full_name]):
             return render(request, 'register.html', {'error': 'All fields are required.'})
@@ -56,7 +58,21 @@ def register_view(request):
         if User.objects.filter(email=email).exists():
             return render(request, 'register.html', {'error': 'An account with this email already exists.'})
 
-        User.objects.create_user(email=email, password=password, full_name=full_name)
+        # Handle company association:
+        company = None
+        if company_name:
+            from users.models import Company
+            if role == 'admin':
+                # Admin can create a new company (or get existing)
+                company, _ = Company.objects.get_or_create(name=company_name)
+            else:
+                # Clients/agents must join an existing company by name
+                try:
+                    company = Company.objects.get(name__iexact=company_name)
+                except Company.DoesNotExist:
+                    return render(request, 'register.html', {'error': 'Company not found. Ask your company admin to provide the exact company name or register as company admin.',})
+
+        user = User.objects.create_user(email=email, password=password, full_name=full_name, role=role, company=company)
         return redirect('/login/?success=1')
 
     return render(request, 'register.html')
@@ -75,6 +91,66 @@ def dashboard_view(request):
 class ParkingPlaceViewSet(viewsets.ModelViewSet):
     queryset = ParkingPlace.objects.all()
     serializer_class = ParkingPlaceSerializer
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        user = self.request.user
+        # Superusers see everything
+        if user.is_authenticated and user.is_superuser:
+            return qs
+        # If user belongs to a company, restrict to that company
+        company = getattr(user, 'company', None)
+        if company:
+            qs = qs.filter(company=company)
+            # Optional query filters from the UI
+            search = self.request.query_params.get('search')
+            floor = self.request.query_params.get('floor')
+            if search:
+                qs = qs.filter(number__icontains=search)
+            if floor:
+                try:
+                    qs = qs.filter(floor=int(floor))
+                except ValueError:
+                    pass
+            return qs
+        # Otherwise no access
+        return qs.none()
+
+    def create(self, request, *args, **kwargs):
+        """Ensure created places are associated with the user's company (if any)
+        and validate uniqueness per company."""
+        data = request.data.copy()
+        user = request.user
+        company = getattr(user, 'company', None)
+        # If non-superuser and company exists, force assign company
+        if company and not user.is_superuser:
+            data['company'] = company.id
+
+        # Basic duplicate check: same number + floor within the company
+        number = data.get('number')
+        floor = data.get('floor')
+        if not number:
+            return Response({'error': 'Place number is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        if floor in (None, ''):
+            return Response({'error': 'Floor is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            floor_val = int(floor)
+        except Exception:
+            return Response({'error': 'Floor must be an integer.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        existing = ParkingPlace.objects.filter(number=number, floor=floor_val)
+        if company:
+            existing = existing.filter(company=company)
+        else:
+            existing = existing.filter(company__isnull=True)
+        if existing.exists():
+            return Response({'error': 'Place with this number and floor already exists for this company.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        serializer = self.get_serializer(data=data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        headers = self.get_success_headers(serializer.data)
+        return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
 
     @action(detail=False, methods=['get'])
     def available(self, request):
@@ -150,6 +226,36 @@ class ParkingPlaceViewSet(viewsets.ModelViewSet):
         place.save()
         return Response({'status': 'unreserved'})
 
+    @action(detail=True, methods=['post'])
+    def occupy(self, request, pk=None):
+        """Force-occupy a specific place for the given vehicle (quick entry without booking)."""
+        place = self.get_object()
+        if place.is_occupied:
+            return Response({'error': 'Place already occupied.'}, status=status.HTTP_400_BAD_REQUEST)
+        vehicle_id = request.data.get('vehicle_id')
+        if not vehicle_id:
+            return Response({'error': 'vehicle_id is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            vehicle = Vehicle.objects.get(id=vehicle_id)
+        except Vehicle.DoesNotExist:
+            return Response({'error': 'Vehicle not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        # Create session and assign this specific place
+        from .parking_service import create_entry_session
+        # Temporarily mark place occupied so create_entry_session won't pick it again
+        place.is_occupied = True
+        place.save()
+        try:
+            session = ParkingSession.objects.create(vehicle=vehicle, parking_place=place, is_active=True)
+            # generate QR
+            from .parking_service import generate_qr_code
+            session = generate_qr_code(session)
+        except Exception as e:
+            place.is_occupied = False
+            place.save()
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(ParkingSessionSerializer(session).data, status=status.HTTP_201_CREATED)
+
 
 class VehicleViewSet(viewsets.ModelViewSet):
     queryset = Vehicle.objects.select_related('owner').all()
@@ -211,7 +317,9 @@ class ParkingSessionViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         vehicle = serializer.validated_data['vehicle_id']
         notes = serializer.validated_data.get('notes', '')
-        session = create_entry_session(vehicle, notes)
+        # Prefer places belonging to the user's company
+        company = getattr(request.user, 'company', None)
+        session = create_entry_session(vehicle, notes, company=company)
         return Response(ParkingSessionSerializer(session).data, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=['post'], serializer_class=drf_serializers.Serializer)
@@ -234,6 +342,48 @@ class ParkingSessionViewSet(viewsets.ModelViewSet):
             url = request.build_absolute_uri(session.qr_code.url)
             return Response({'qr_url': url, 'session_id': session.id})
         return Response({'error': 'QR code could not be generated'}, status=500)
+
+    @action(detail=True, methods=['get'])
+    def invoice(self, request, pk=None):
+        """Generate a PDF invoice for a closed session."""
+        try:
+            session = ParkingSession.objects.get(id=pk)
+        except ParkingSession.DoesNotExist:
+            return Response({'error': 'Session not found.'}, status=404)
+        if session.is_active:
+            return Response({'error': 'Session must be closed to generate invoice.'}, status=400)
+
+        # Generate a simple PDF invoice using reportlab
+        try:
+            from reportlab.lib.pagesizes import A4
+            from reportlab.pdfgen import canvas
+        except Exception:
+            return Response({'error': 'PDF generation library not available.'}, status=500)
+
+        from io import BytesIO
+        buffer = BytesIO()
+        c = canvas.Canvas(buffer, pagesize=A4)
+        text = c.beginText(40, 800)
+        text.setFont('Helvetica', 12)
+        text.textLine('Parking Invoice')
+        text.textLine('')
+        text.textLine(f'Session ID: {session.id}')
+        text.textLine(f'Plate: {session.vehicle.plate_number}')
+        text.textLine(f'Entry: {session.entry_time.strftime("%Y-%m-%d %H:%M")}')
+        text.textLine(f'Exit: {session.exit_time.strftime("%Y-%m-%d %H:%M") if session.exit_time else "-"}')
+        text.textLine(f'Duration: {session.duration_display}')
+        text.textLine(f'Total: {session.total_price or "0.00"} DT')
+        text.textLine('')
+        company = getattr(session.parking_place, 'company', None)
+        if company:
+            text.textLine(f'Company: {company.name}')
+        c.drawText(text)
+        c.showPage()
+        c.save()
+        buffer.seek(0)
+
+        from django.http import FileResponse
+        return FileResponse(buffer, as_attachment=True, filename=f'invoice_session_{session.id}.pdf')
 
     @action(detail=False, methods=['get'])
     def revenue(self, request):
@@ -332,10 +482,13 @@ class BookingViewSet(viewsets.ModelViewSet):
         if request.user.role == 'client' and vehicle.owner != request.user:
             return Response({'error': 'You can only book for your own vehicles.'}, status=status.HTTP_403_FORBIDDEN)
 
+        parking_place = serializer.validated_data.get('parking_place')
         try:
-            booking = create_booking(user=request.user, **serializer.validated_data)
+            booking = create_booking(user=request.user, vehicle=vehicle, start_time=serializer.validated_data['start_time'], end_time=serializer.validated_data['end_time'], parking_place=parking_place)
         except ValidationError as e:
-            return Response({'error': e.detail[0]}, status=status.HTTP_400_BAD_REQUEST)
+            # e may be a DRF ValidationError or Django one
+            msg = getattr(e, 'detail', None) or str(e)
+            return Response({'error': msg}, status=status.HTTP_400_BAD_REQUEST)
 
         response_serializer = self.serializer_class(booking, context={'request': request})
         return Response(response_serializer.data, status=status.HTTP_201_CREATED)

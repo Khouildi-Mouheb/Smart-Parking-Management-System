@@ -50,6 +50,18 @@
                 <input type="text" name="full_name" class="form-control" placeholder="Your full name" required value="{{ request.POST.full_name }}">
             </div>
             <div class="form-group">
+                <label>Role</label>
+                <select name="role" class="form-control">
+                    <option value="client" {% if request.POST.role == 'client' %}selected{% endif %}>Client (Worker)</option>
+                    <option value="agent" {% if request.POST.role == 'agent' %}selected{% endif %}>Agent</option>
+                    <option value="admin" {% if request.POST.role == 'admin' %}selected{% endif %}>Company Admin</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Company Name (optional — create or join)</label>
+                <input type="text" name="company_name" class="form-control" placeholder="Acme Parking Co." value="{{ request.POST.company_name }}">
+            </div>
+            <div class="form-group">
                 <label>Company Email Address</label>
                 <input type="email" name="email" class="form-control" placeholder="worker@company.com" required value="{{ request.POST.email }}">
             </div>

@@ -82,13 +82,23 @@
 <div id="tab-map" class="tab-content">
     <div class="card mb-4">
         <div class="flex justify-between items-center mb-4">
-            <div class="card-title" style="margin-bottom:0">Parking Map — Real-time</div>
-            <div style="display:flex;gap:12px;font-size:12px;align-items:center;">
+            <div style="display:flex;gap:12px;align-items:center;width:100%;justify-content:space-between">
+                <div style="display:flex;gap:12px;align-items:center">
+                    <div class="card-title" style="margin-bottom:0">Parking Map — Real-time</div>
+                    <div style="display:flex;gap:8px;align-items:center;margin-left:8px;">
+                        <input id="map-search" class="form-control" style="width:220px;" placeholder="Search place number (e.g. A01)">
+                        <input id="map-floor" type="number" class="form-control" style="width:100px;" placeholder="Floor">
+                        <button class="btn btn-outline btn-sm" onclick="applyMapFilters()">Search</button>
+                        <button class="btn btn-outline btn-sm" onclick="clearMapFilters()">Clear</button>
+                    </div>
+                </div>
+                <div style="display:flex;gap:12px;font-size:12px;align-items:center;">
                 <span>🟢 Free</span>
                 <span>🔴 Occupied</span>
                 <span>🟡 Reserved</span>
                 <span>🔵 Electric</span>
                 <button class="btn btn-outline btn-sm" onclick="loadParkingMap()">↺ Refresh</button>
+                </div>
             </div>
         </div>
         <div id="parking-map-container">
@@ -547,7 +557,9 @@ async function loadParkingMap() {
                     
                     let clickAttr = '';
                     if (!p.is_occupied) {
-                        clickAttr = `onclick="toggleReserve(${p.id}, ${p.is_reserved})" style="cursor:pointer;"`;
+                        // If already reserved, allow unreserve; otherwise open booking modal for this place
+                        if (p.is_reserved) clickAttr = `onclick="toggleReserve(${p.id}, ${p.is_reserved})" style="cursor:pointer;"`;
+                        else clickAttr = `onclick="openBookingForPlace(${p.id}, '${p.number}')" style="cursor:pointer;"`;
                     } else {
                         clickAttr = `style="cursor:not-allowed;"`;
                     }
@@ -636,7 +648,15 @@ async function loadHistory() {
 // =================== VEHICLES ===================
 async function loadVehicles() {
     try {
-        const data = await fetch(`${API}/vehicles/`).then(r=>r.json());
+        const resp = await fetch(`${API}/vehicles/`, { headers: H, credentials: 'same-origin' });
+        if (!resp.ok) {
+            if (resp.status === 401 || resp.status === 403) { toast('Not authorized. Please login.', 'error'); return; }
+            const txt = await resp.text().catch(()=>null);
+            console.error('Failed loading vehicles', resp.status, txt);
+            toast('Could not load vehicles.', 'error');
+            return;
+        }
+        const data = await resp.json();
         const vehicles = data.results || data;
         const tbody = document.getElementById('vehicles-table');
         tbody.innerHTML = vehicles.map(v => `
@@ -926,7 +946,15 @@ async function loadMyBookings() {
 
 async function openBookingModal() {
     try {
-        const data = await fetch(`${API}/vehicles/`).then(r=>r.json());
+        const resp = await fetch(`${API}/vehicles/`, { headers: H, credentials: 'same-origin' });
+        if (!resp.ok) {
+            if (resp.status === 401 || resp.status === 403) { toast('Not authorized. Please login.', 'error'); return; }
+            const txt = await resp.text().catch(()=>null);
+            console.error('Failed loading vehicles', resp.status, txt);
+            toast('Could not load vehicles.', 'error');
+            return;
+        }
+        const data = await resp.json();
         const vehicles = data.results || data;
         const select = document.getElementById('book-vehicle');
         if (!vehicles.length) {
@@ -947,7 +975,44 @@ async function openBookingModal() {
         document.getElementById('book-end').value = new Date(end.getTime() - tzOffset).toISOString().slice(0,16);
 
         document.getElementById('booking-modal').classList.add('open');
-    } catch(e) { toast('Could not load vehicles.', 'error'); }
+    } catch(e) { console.error(e); toast('Could not load vehicles.', 'error'); }
+}
+
+async function openBookingForPlace(placeId, placeLabel) {
+    try {
+        const resp = await fetch(`${API}/vehicles/`, { headers: H, credentials: 'same-origin' });
+        if (!resp.ok) {
+            if (resp.status === 401 || resp.status === 403) { toast('Not authorized. Please login.', 'error'); return; }
+            const txt = await resp.text().catch(()=>null);
+            console.error('Failed loading vehicles', resp.status, txt);
+            toast('Could not load vehicles.', 'error');
+            return;
+        }
+        const data = await resp.json();
+        const vehicles = data.results || data;
+        const select = document.getElementById('book-vehicle');
+        if (!vehicles.length) {
+            toast('You must add a vehicle first!', 'error');
+            window.showTab('vehicles');
+            return;
+        }
+        select.innerHTML = vehicles.map(v => `<option value="${v.id}">${v.plate_number} (${v.brand})</option>`).join('');
+        const start = new Date();
+        start.setMinutes(start.getMinutes() + 15 - (start.getMinutes() % 15));
+        start.setSeconds(0);
+        start.setMilliseconds(0);
+        const end = new Date(start.getTime() + (60 * 60 * 1000));
+        const tzOffset = new Date().getTimezoneOffset() * 60000;
+        document.getElementById('book-start').value = new Date(start.getTime() - tzOffset).toISOString().slice(0,16);
+        document.getElementById('book-end').value = new Date(end.getTime() - tzOffset).toISOString().slice(0,16);
+
+        // Set selected place info and hidden input
+        const info = document.getElementById('booking-place-info');
+        info.innerHTML = `Selected place: <strong>${placeLabel}</strong>`;
+        document.getElementById('book-parking-place').value = placeId;
+
+        document.getElementById('booking-modal').classList.add('open');
+    } catch(e) { console.error(e); toast('Could not load vehicles.', 'error'); }
 }
 
 async function submitBooking() {
@@ -961,6 +1026,8 @@ async function submitBooking() {
         start_time: new Date(startInput).toISOString(),
         end_time: new Date(endInput).toISOString(),
     };
+    const selectedPlace = document.getElementById('book-parking-place').value;
+    if (selectedPlace) body.parking_place = selectedPlace;
     try {
         const r = await fetch(`${API}/bookings/`, { method: 'POST', headers: H, body: JSON.stringify(body) });
         const d = await r.json();

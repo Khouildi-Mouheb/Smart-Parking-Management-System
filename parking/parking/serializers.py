@@ -91,9 +91,13 @@ class BookingSerializer(serializers.ModelSerializer):
 class BookingCreateSerializer(serializers.Serializer):
     vehicle = serializers.PrimaryKeyRelatedField(queryset=Vehicle.objects.all())
     start_time = serializers.DateTimeField()
-    end_time = serializers.DateTimeField()
+    end_time = serializers.DateTimeField(required=False, allow_null=True)
+    parking_place = serializers.PrimaryKeyRelatedField(queryset=ParkingPlace.objects.all(), required=False, allow_null=True)
 
     def validate(self, data):
+        # If end_time not provided, default to +1 hour
+        if not data.get('end_time'):
+            data['end_time'] = data['start_time'] + timedelta(hours=1)
         if data['start_time'] >= data['end_time']:
             raise serializers.ValidationError("End time must be after start time.")
         # Allow a 5-minute buffer in case the user selects the exact current minute

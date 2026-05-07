@@ -9,16 +9,22 @@ from rest_framework.exceptions import ValidationError
 from .models import ParkingPlace, ParkingSession, Vehicle, Tariff, ParkingAlert, Subscription, Booking
 
 
-def assign_free_place(place_type='standard'):
+def assign_free_place(place_type='standard', company=None):
     """Finds and returns the first available parking place of the given type."""
-    place = ParkingPlace.objects.filter(
+    qs = ParkingPlace.objects.filter(
         is_occupied=False,
         is_reserved=False,
         place_type=place_type
-    ).order_by('floor', 'number').first()
+    )
+    if company:
+        qs = qs.filter(company=company)
+    place = qs.order_by('floor', 'number').first()
     if not place:
-        # Fallback to any available standard place
-        place = ParkingPlace.objects.filter(is_occupied=False, is_reserved=False).order_by('floor', 'number').first()
+        # Fallback to any available place (optionally within company)
+        qs = ParkingPlace.objects.filter(is_occupied=False, is_reserved=False)
+        if company:
+            qs = qs.filter(company=company)
+        place = qs.order_by('floor', 'number').first()
     return place
 
 
@@ -130,7 +136,7 @@ def check_and_create_alerts():
 
 
 @transaction.atomic
-def create_entry_session(vehicle, notes=''):
+def create_entry_session(vehicle, notes='', company=None):
     """Assigns a parking place to a vehicle and opens a session."""
     if ParkingSession.objects.filter(vehicle=vehicle, is_active=True).exists():
         raise ValidationError("This vehicle already has an active parking session.")
@@ -142,7 +148,7 @@ def create_entry_session(vehicle, notes=''):
         end_date__gte=timezone.now().date()
     ).first()
 
-    place = assign_free_place()
+    place = assign_free_place(company=company)
     if not place:
         raise ValidationError("No parking places available.")
 
@@ -164,7 +170,7 @@ def create_entry_session(vehicle, notes=''):
 
 
 @transaction.atomic
-def create_booking(user, vehicle, start_time, end_time):
+def create_booking(user, vehicle, start_time, end_time, parking_place=None):
     """
     Creates a booking for a user, finds a spot, calculates price, and returns the booking.
     """
@@ -174,19 +180,33 @@ def create_booking(user, vehicle, start_time, end_time):
     if start_time < timezone.now():
         raise ValidationError("Booking start time cannot be in the past.")
 
-    # 2. Find an available parking place
+    # 2. Find an available parking place (or validate requested one)
     conflicting_bookings = Booking.objects.filter(
         status__in=['confirmed', 'active'],
         start_time__lt=end_time,
         end_time__gt=start_time
     ).values_list('parking_place_id', flat=True)
+    # Prefer places within the user's company if available
+    company = getattr(user, 'company', None)
 
-    place_to_book = ParkingPlace.objects.exclude(
-        id__in=conflicting_bookings
-    ).filter(is_occupied=False).order_by('floor', 'number').first()
+    # If a specific parking_place was requested, validate it
+    if parking_place:
+        # ensure it's not occupied and not in conflicting bookings
+        if parking_place.is_occupied or parking_place.id in conflicting_bookings:
+            raise ValidationError("Requested parking place is not available for the selected time slot.")
+        if company and parking_place.company != company:
+            raise ValidationError("Requested parking place does not belong to your company.")
+        place_to_book = parking_place
+    else:
+        place_query = ParkingPlace.objects.exclude(
+            id__in=conflicting_bookings
+        ).filter(is_occupied=False)
+        if company:
+            place_query = place_query.filter(company=company)
+        place_to_book = place_query.order_by('floor', 'number').first()
 
-    if not place_to_book:
-        raise ValidationError("No available places for the selected time slot. Please try another time.")
+        if not place_to_book:
+            raise ValidationError("No available places for the selected time slot. Please try another time.")
 
     # 3. Calculate estimated price
     duration = end_time - start_time

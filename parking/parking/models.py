@@ -11,7 +11,9 @@ class ParkingPlace(models.Model):
         ('electric', 'Electric Vehicle'),
     )
 
-    number = models.CharField(max_length=10, unique=True)
+    number = models.CharField(max_length=10)
+    # Associate parking places with a company (multi-tenant)
+    company = models.ForeignKey('users.Company', on_delete=models.CASCADE, related_name='parking_places', null=True, blank=True)
     floor = models.IntegerField()
     place_type = models.CharField(max_length=20, choices=PLACE_TYPES, default='standard')
     is_occupied = models.BooleanField(default=False)
@@ -22,6 +24,8 @@ class ParkingPlace(models.Model):
 
     class Meta:
         ordering = ['floor', 'number']
+        # Ensure a place number + floor is unique within a company
+        unique_together = (('company', 'number', 'floor'),)
 
     def __str__(self):
         return f"Place {self.number} (Floor {self.floor}) [{self.place_type}]"

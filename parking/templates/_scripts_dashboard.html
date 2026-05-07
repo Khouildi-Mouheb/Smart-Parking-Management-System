@@ -78,7 +78,14 @@ async function loadDashboard() {
 // =================== MAP ===================
 async function loadParkingMap() {
     try {
-        const data = await fetch(`${API}/places/`).then(r=>r.json());
+        // Respect filter inputs
+        const params = [];
+        const search = document.getElementById('map-search') ? document.getElementById('map-search').value.trim() : '';
+        const floor = document.getElementById('map-floor') ? document.getElementById('map-floor').value.trim() : '';
+        if (search) params.push(`search=${encodeURIComponent(search)}`);
+        if (floor) params.push(`floor=${encodeURIComponent(floor)}`);
+        const url = `${API}/places/${params.length ? ('?' + params.join('&')) : ''}`;
+        const data = await fetch(url).then(r=>r.json());
         const places = data.results || data;
         const floors = [...new Set(places.map(p=>p.floor))].sort();
         let html = '';
@@ -94,7 +101,9 @@ async function loadParkingMap() {
                     
                     let clickAttr = '';
                     if (!p.is_occupied) {
-                        clickAttr = `onclick="toggleReserve(${p.id}, ${p.is_reserved})" style="cursor:pointer;"`;
+                        // If already reserved, allow unreserve; otherwise open booking modal for this place
+                        if (p.is_reserved) clickAttr = `onclick="toggleReserve(${p.id}, ${p.is_reserved})" style="cursor:pointer;"`;
+                        else clickAttr = `onclick="openBookingForPlace(${p.id}, '${p.number}')" style="cursor:pointer;"`;
                     } else {
                         clickAttr = `style="cursor:not-allowed;"`;
                     }
@@ -106,6 +115,9 @@ async function loadParkingMap() {
         document.getElementById('parking-map-container').innerHTML = html || '<div class="text-muted text-sm">No places found. Add places first.</div>';
     } catch(e) { console.error(e); }
 }
+
+function applyMapFilters() { loadParkingMap(); }
+function clearMapFilters() { if (document.getElementById('map-search')) document.getElementById('map-search').value=''; if (document.getElementById('map-floor')) document.getElementById('map-floor').value=''; loadParkingMap(); }
 
 // =================== SESSIONS ===================
 async function loadActiveSessions() {
@@ -130,6 +142,7 @@ async function loadActiveSessions() {
                 <td>${s.is_subscription_session ? '<span class="badge badge-purple">Sub</span>' : '<span class="badge badge-yellow">Pay</span>'}</td>
                 <td>
                     <button class="btn btn-danger btn-sm" onclick="quickExit(${s.id})">Exit</button>
+                    ${!s.is_active ? `<button class="btn btn-outline btn-sm" onclick="downloadInvoice(${s.id})">PDF</button>` : ''}
                 </td>
             </tr>
         `).join('');
@@ -180,10 +193,41 @@ async function loadHistory() {
     } catch(e) { console.error(e); }
 }
 
+async function downloadInvoice(sessionId) {
+    try {
+        const r = await fetch(`${API}/sessions/${sessionId}/invoice/`, { method: 'GET', headers: H });
+        if (!r.ok) {
+            const d = await r.json().catch(()=>({error: 'Could not fetch invoice'}));
+            return toast(d.error || 'Invoice not available', 'error');
+        }
+        const blob = await r.blob();
+        const url = window.URL.createObjectURL(blob);
+        const win = window.open(url, '_blank');
+        if (!win) {
+            // Fallback: download
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `invoice_session_${sessionId}.pdf`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+        }
+        setTimeout(() => window.URL.revokeObjectURL(url), 60000);
+    } catch(e) { toast('Error downloading invoice', 'error'); }
+}
+
 // =================== VEHICLES ===================
 async function loadVehicles() {
     try {
-        const data = await fetch(`${API}/vehicles/`).then(r=>r.json());
+        const resp = await fetch(`${API}/vehicles/`, { headers: H, credentials: 'same-origin' });
+        if (!resp.ok) {
+            if (resp.status === 401 || resp.status === 403) { toast('Not authorized. Please login.', 'error'); return; }
+            const txt = await resp.text().catch(()=>null);
+            console.error('Failed loading vehicles', resp.status, txt);
+            toast('Could not load vehicles.', 'error');
+            return;
+        }
+        const data = await resp.json();
         const vehicles = data.results || data;
         const tbody = document.getElementById('vehicles-table');
         tbody.innerHTML = vehicles.map(v => `
@@ -473,7 +517,15 @@ async function loadMyBookings() {
 
 async function openBookingModal() {
     try {
-        const data = await fetch(`${API}/vehicles/`).then(r=>r.json());
+        const resp = await fetch(`${API}/vehicles/`, { headers: H, credentials: 'same-origin' });
+        if (!resp.ok) {
+            if (resp.status === 401 || resp.status === 403) { toast('Not authorized. Please login.', 'error'); return; }
+            const txt = await resp.text().catch(()=>null);
+            console.error('Failed loading vehicles', resp.status, txt);
+            toast('Could not load vehicles.', 'error');
+            return;
+        }
+        const data = await resp.json();
         const vehicles = data.results || data;
         const select = document.getElementById('book-vehicle');
         if (!vehicles.length) {
@@ -493,8 +545,46 @@ async function openBookingModal() {
         document.getElementById('book-end').value = end.toISOString().slice(0,16);
 
         document.getElementById('booking-modal').classList.add('open');
-    } catch(e) { toast('Could not load vehicles.', 'error'); }
+    } catch(e) { console.error(e); toast('Could not load vehicles.', 'error'); }
 }
+
+    async function openBookingForPlace(placeId, placeLabel) {
+        try {
+            const resp = await fetch(`${API}/vehicles/`, { headers: H, credentials: 'same-origin' });
+            if (!resp.ok) {
+                if (resp.status === 401 || resp.status === 403) { toast('Not authorized. Please login.', 'error'); return; }
+                const txt = await resp.text().catch(()=>null);
+                console.error('Failed loading vehicles', resp.status, txt);
+                toast('Could not load vehicles.', 'error');
+                return;
+            }
+            const data = await resp.json();
+            const vehicles = data.results || data;
+            const select = document.getElementById('book-vehicle');
+            if (!vehicles.length) {
+                toast('You must add a vehicle first!', 'error');
+                window.showTab('vehicles');
+                return;
+            }
+            select.innerHTML = vehicles.map(v => `<option value="${v.id}">${v.plate_number} (${v.brand})</option>`).join('');
+
+            const start = new Date();
+            start.setMinutes(start.getMinutes() + 15 - (start.getMinutes() % 15));
+            start.setSeconds(0);
+            start.setMilliseconds(0);
+            const end = new Date(start.getTime() + (60 * 60 * 1000));
+
+            document.getElementById('book-start').value = start.toISOString().slice(0,16);
+            document.getElementById('book-end').value = end.toISOString().slice(0,16);
+
+            // Set selected place info and hidden input
+            const info = document.getElementById('booking-place-info');
+            info.innerHTML = `Selected place: <strong>${placeLabel}</strong>`;
+            document.getElementById('book-parking-place').value = placeId;
+
+            document.getElementById('booking-modal').classList.add('open');
+        } catch(e) { toast('Could not load vehicles.', 'error'); }
+    }
 
 async function submitBooking() {
     const body = {
@@ -502,6 +592,8 @@ async function submitBooking() {
         start_time: document.getElementById('book-start').value,
         end_time: document.getElementById('book-end').value,
     };
+    const selectedPlace = document.getElementById('book-parking-place').value;
+    if (selectedPlace) body.parking_place = selectedPlace;
     if (!body.vehicle || !body.start_time || !body.end_time) return toast('All fields are required.', 'error');
     try {
         const r = await fetch(`${API}/bookings/`, { method: 'POST', headers: H, body: JSON.stringify(body) });

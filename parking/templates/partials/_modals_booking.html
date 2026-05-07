@@ -5,6 +5,9 @@
             <div class="modal-title">📅 Book a Parking Spot</div>
             <button class="btn btn-outline btn-sm" onclick="closeModal('booking-modal')">✕</button>
         </div>
+        <div style="margin-bottom:10px;">
+            <div class="text-sm text-muted" id="booking-place-info">Selected place: <strong>—</strong></div>
+        </div>
         <div class="form-row">
             <div class="form-group">
                 <label>Your Vehicle</label>
@@ -20,9 +23,10 @@
             </div>
         </div>
         <div style="display:flex;gap:10px;margin-top:8px;">
-            <button class="btn btn-accent" onclick="submitBooking()">Find Spot & Book</button>
+            <button class="btn btn-accent" onclick="submitBooking()">Reserve Place</button>
             <button class="btn btn-outline" onclick="closeModal('booking-modal')">Cancel</button>
         </div>
+        <input type="hidden" id="book-parking-place" value="">
     </div>
 </div>
 

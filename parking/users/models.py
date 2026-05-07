@@ -43,6 +43,9 @@ class User(AbstractBaseUser, PermissionsMixin):
         default='client'
     )
 
+    # Optional company association for multi-tenant support
+    company = models.ForeignKey('Company', on_delete=models.SET_NULL, null=True, blank=True, related_name='users')
+
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
 
@@ -52,3 +55,13 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     def __str__(self):
         return self.email
+
+
+class Company(models.Model):
+    name = models.CharField(max_length=255, unique=True)
+    address = models.CharField(max_length=500, blank=True)
+    contact_email = models.EmailField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.name
