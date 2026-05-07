@@ -9,14 +9,26 @@ User = get_user_model()
 
 class ParkingPlaceSerializer(serializers.ModelSerializer):
     status = serializers.ReadOnlyField()
+    reserved_future = serializers.SerializerMethodField()
+    next_booking_start = serializers.SerializerMethodField()
 
     class Meta:
         model = ParkingPlace
         fields = '__all__'
 
+    def get_reserved_future(self, obj):
+        now = timezone.now()
+        return Booking.objects.filter(parking_place=obj, status__in=['confirmed', 'active'], start_time__gt=now).exists()
+
+    def get_next_booking_start(self, obj):
+        now = timezone.now()
+        b = Booking.objects.filter(parking_place=obj, status__in=['confirmed', 'active'], start_time__gt=now).order_by('start_time').first()
+        return b.start_time if b else None
+
 
 class VehicleSerializer(serializers.ModelSerializer):
     owner_email = serializers.CharField(source='owner.email', read_only=True)
+    owner = serializers.HiddenField(default=serializers.CurrentUserDefault())
 
     class Meta:
         model = Vehicle

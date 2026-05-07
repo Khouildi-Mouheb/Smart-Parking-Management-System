@@ -1,0 +1,276 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Parking Places - Parki Karhabti</title>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        :root { --bg: #0a0c10; --surface: #12151c; --border: #2a2f3d; --accent: #00e5a0; --text: #e8eaf0; --muted: #6b7280; }
+        body { background: var(--bg); color: var(--text); font-family: 'DM Sans', sans-serif; margin: 0; }
+        .navbar { display: flex; justify-content: space-between; align-items: center; padding: 15px 30px; background: var(--surface); border-bottom: 1px solid var(--border); }
+        .container { padding: 30px; max-width: 1200px; margin: auto; }
+        
+        .card { background: var(--surface); border: 1px solid var(--border); padding: 20px; border-radius: 12px; margin-bottom: 20px; }
+        .card h3 { margin-top: 0; color: var(--accent); }
+        
+        .form-group { margin-bottom: 15px; }
+        .form-group label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; font-weight: 500; }
+        .form-control { width: 100%; background: #1a1e28; border: 1px solid var(--border); color: var(--text); padding: 10px; border-radius: 6px; box-sizing: border-box; }
+        
+        .btn { padding: 10px 20px; background: var(--accent); color: #000; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; text-decoration: none; display: inline-block;}
+        .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text); }
+        .btn-danger { background: rgba(239,68,68,0.1); border: 1px solid #ef4444; color: #ef4444; }
+
+        /* Map Grid */
+        .place-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap: 10px; }
+        .place-cell { background: #1a1e28; border: 2px solid var(--border); padding: 20px 0; text-align: center; border-radius: 8px; font-weight: bold; cursor: pointer; transition: 0.2s; }
+        .place-cell:hover { border-color: var(--accent); }
+        .place-cell.occupied { border-color: #ef4444; background: rgba(239,68,68,0.1); cursor: not-allowed; }
+        .place-cell.reserved { border-color: #eab308; background: rgba(234,179,8,0.1); cursor: not-allowed; }
+        
+        /* Modals */
+        .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); align-items: center; justify-content: center; z-index: 1000; }
+        .modal-overlay.open { display: flex; }
+        .modal { background: var(--surface); padding: 30px; border-radius: 12px; width: 100%; max-width: 400px; border: 1px solid var(--border); position: relative;}
+    </style>
+</head>
+<body>
+    <div class="navbar">
+        <div style="display: flex; align-items: center; gap: 10px; font-weight: bold; color: var(--accent); font-size: 22px;">
+            <img src="{% static 'logo.png' %}" alt="Parki Karhabti Logo" style="height: 50px;">
+            Parki Karhabti Places
+        </div>
+        <div style="display: flex; gap: 10px;">
+            {% if request.user.role == 'admin' or request.user.role == 'agent' %}
+            <a href="/" class="btn btn-outline">Back to Admin Dashboard</a>
+            {% endif %}
+            <a href="/logout/" class="btn btn-danger">Logout</a>
+        </div>
+    </div>
+    
+    <div class="container">
+        <!-- Add Vehicle Div -->
+        <div class="card" id="add-vehicle-section">
+            <h3>🚗 Register a Vehicle</h3>
+            <p style="color: var(--muted); font-size: 13px; margin-bottom: 15px;">You must have a vehicle registered before you can book a spot.</p>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                <div class="form-group"><label>Plate Number</label><input type="text" id="v-plate" class="form-control" placeholder="e.g. TUN1234"></div>
+                <div class="form-group"><label>Brand</label><input type="text" id="v-brand" class="form-control" placeholder="e.g. Toyota"></div>
+                <div class="form-group"><label>Model</label><input type="text" id="v-model" class="form-control" placeholder="e.g. Corolla"></div>
+                <div class="form-group"><label>Color</label><input type="text" id="v-color" class="form-control" placeholder="e.g. Black"></div>
+                <div class="form-group">
+                    <label>Type</label>
+                    <select id="v-type" class="form-control">
+                        <option value="car">Car</option>
+                        <option value="motorcycle">Motorcycle</option>
+                        <option value="truck">Truck</option>
+                    </select>
+                </div>
+            </div>
+            <button class="btn" onclick="addVehicle()">Save Vehicle</button>
+        </div>
+
+        {% if request.user.role == 'admin' or request.user.role == 'agent' or request.user.is_superuser %}
+        <!-- Add Place Div (Admin Only) -->
+        <div class="card" id="add-place-section">
+            <h3>🏢 Add Parking Place</h3>
+            <p style="color: var(--muted); font-size: 13px; margin-bottom: 15px;">Create a new parking spot for the map.</p>
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px;">
+                <div class="form-group"><label>Place Number</label><input type="text" id="p-num" class="form-control" placeholder="e.g. A01"></div>
+                <div class="form-group"><label>Floor</label><input type="number" id="p-floor" class="form-control" value="1"></div>
+                <div class="form-group">
+                    <label>Type</label>
+                    <select id="p-type" class="form-control">
+                        <option value="standard">Standard</option>
+                        <option value="vip">VIP</option>
+                        <option value="electric">Electric</option>
+                        <option value="handicapped">Handicapped</option>
+                    </select>
+                </div>
+            </div>
+            <button class="btn" onclick="addPlace()">Add Place</button>
+        </div>
+        {% endif %}
+
+        <!-- Map Section -->
+        <div class="card">
+            <h3>📍 Interactive Parking Map</h3>
+            <p style="color: var(--muted); font-size: 13px;">Click on any available spot to reserve it.</p>
+            <div id="map-container" style="margin-top: 20px;">Loading map...</div>
+        </div>
+    </div>
+
+    <!-- Booking Modal -->
+    <div class="modal-overlay" id="booking-modal">
+        <div class="modal">
+            <h3>📅 Book Spot <span id="booking-place-label" style="color:var(--accent)"></span></h3>
+            <input type="hidden" id="book-place-id">
+            
+            <div class="form-group">
+                <label>Select Your Vehicle</label>
+                <select id="book-vehicle" class="form-control"></select>
+            </div>
+            <div class="form-group">
+                <label>Start Date & Time</label>
+                <input type="datetime-local" id="book-start" class="form-control">
+            </div>
+            <div class="form-group">
+                <label>End Date & Time</label>
+                <input type="datetime-local" id="book-end" class="form-control">
+            </div>
+            
+            <div style="display:flex; gap:10px; margin-top: 20px;">
+                <button class="btn" onclick="submitBooking()">Confirm Booking</button>
+                <button class="btn btn-outline" onclick="closeModal('booking-modal')">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- QR Code Result Modal -->
+    <div class="modal-overlay" id="qr-modal">
+        <div class="modal" style="text-align: center;">
+            <h3 style="color: var(--accent); margin-top: 0;">✅ Confirmed!</h3>
+            <p style="color: var(--muted); font-size: 14px;">Scan this QR code at the gate to enter.</p>
+            
+            <img id="qr-image" src="" style="width: 200px; height: 200px; background: white; padding: 10px; border-radius: 8px; margin: 15px 0;">
+            
+            <div id="qr-details" style="font-size: 14px; text-align: left; background: #1a1e28; padding: 15px; border-radius: 8px; margin-bottom: 20px;"></div>
+            <div style="display: flex; gap: 10px; justify-content: center;">
+                <a id="download-invoice-btn" href="#" class="btn" target="_blank">📄 Download Facture</a>
+                <button class="btn btn-outline" onclick="closeModal('qr-modal')">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // CSRF Helper for Django
+        function getCookie(name) {
+            let cookieValue = null;
+            if (document.cookie && document.cookie !== '') {
+                const cookies = document.cookie.split(';');
+                for (let i = 0; i < cookies.length; i++) {
+                    const cookie = cookies[i].trim();
+                    if (cookie.substring(0, name.length + 1) === (name + '=')) { cookieValue = decodeURIComponent(cookie.substring(name.length + 1)); break; }
+                }
+            }
+            return cookieValue;
+        }
+        const headers = { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') };
+
+        // 1. Map Logic
+        async function loadMap() {
+            try {
+                const res = await fetch('/api/parking/places/');
+                const data = await res.json();
+                const places = data.results || data;
+                
+                const floors = {};
+                places.forEach(p => {
+                    const f = p.floor || 1;
+                    if (!floors[f]) floors[f] = [];
+                    floors[f].push(p);
+                });
+                
+                const sortedFloors = Object.keys(floors).map(Number).sort((a, b) => a - b);
+                let html = '';
+                
+                sortedFloors.forEach(floor => {
+                    html += `<div style="margin-bottom: 25px;"><h4 style="color: var(--muted); margin-bottom: 10px; border-bottom: 1px solid var(--border); padding-bottom: 5px;">Floor ${floor}</h4><div class="place-grid">`;
+                    html += floors[floor].map(p => {
+                        let cls = p.is_occupied ? 'occupied' : (p.is_reserved ? 'reserved' : '');
+                        let click = (!p.is_occupied && !p.is_reserved) ? `onclick="openBooking(${p.id}, '${p.number}')"` : '';
+                        return `<div class="place-cell ${cls}" ${click}>${p.number}</div>`;
+                    }).join('') + `</div></div>`;
+                });
+                
+                document.getElementById('map-container').innerHTML = html || '<div style="color: var(--muted);">No places found.</div>';
+            } catch(e) { console.error(e); }
+        }
+
+        // 2. Add Vehicle Logic
+        async function addVehicle() {
+            const body = {
+                plate_number: document.getElementById('v-plate').value,
+                brand: document.getElementById('v-brand').value,
+                model: document.getElementById('v-model').value,
+                color: document.getElementById('v-color').value,
+                vehicle_type: document.getElementById('v-type').value
+            };
+            if(!body.plate_number || !body.brand) return alert('Plate Number and Brand are required!');
+            
+            try {
+                const res = await fetch('/api/parking/vehicles/', { method: 'POST', headers, body: JSON.stringify(body) });
+                if(res.ok) { alert('Vehicle added successfully!'); document.getElementById('v-plate').value = ''; document.getElementById('v-brand').value = ''; } 
+                else { const err = await res.json(); alert('Error: ' + JSON.stringify(err)); }
+            } catch(e) { console.error(e); }
+        }
+
+        // Add Place Logic (Admin Only)
+        {% if request.user.role == 'admin' or request.user.role == 'agent' or request.user.is_superuser %}
+        async function addPlace() {
+            const body = {
+                number: document.getElementById('p-num').value,
+                floor: document.getElementById('p-floor').value,
+                place_type: document.getElementById('p-type').value
+            };
+            if(!body.number || !body.floor) return alert('Place Number and Floor are required!');
+            
+            try {
+                const res = await fetch('/api/parking/places/', { method: 'POST', headers, body: JSON.stringify(body) });
+                if(res.ok) { 
+                    alert('Place added successfully!'); 
+                    document.getElementById('p-num').value = ''; 
+                    loadMap(); // Refresh the map immediately
+                } else { const err = await res.json(); alert('Error: ' + (err.error || JSON.stringify(err))); }
+            } catch(e) { console.error(e); }
+        }
+        {% endif %}
+
+        // 3. Booking Logic
+        async function openBooking(placeId, placeNumber) {
+            document.getElementById('book-place-id').value = placeId;
+            document.getElementById('booking-place-label').innerText = placeNumber;
+            
+            // Setup time values securely
+            const now = new Date(); now.setMinutes(now.getMinutes() + 15 - (now.getMinutes() % 15));
+            const tz = now.getTimezoneOffset() * 60000;
+            document.getElementById('book-start').value = new Date(now.getTime() - tz).toISOString().slice(0,16);
+            document.getElementById('book-end').value = new Date(now.getTime() + 3600000 - tz).toISOString().slice(0,16); // +1 Hour
+
+            // Load vehicles
+            const res = await fetch('/api/parking/vehicles/');
+            const vehicles = (await res.json()).results || await res.json();
+            if(vehicles.length === 0) return alert('Please register a vehicle in the form above first!');
+            
+            document.getElementById('book-vehicle').innerHTML = vehicles.map(v => `<option value="${v.id}">${v.plate_number} (${v.brand})</option>`).join('');
+            document.getElementById('booking-modal').classList.add('open');
+        }
+
+        // 4. Generate QR & Submit
+        async function submitBooking() {
+            const body = {
+                parking_place: document.getElementById('book-place-id').value,
+                vehicle: document.getElementById('book-vehicle').value,
+                start_time: new Date(document.getElementById('book-start').value).toISOString(),
+                end_time: new Date(document.getElementById('book-end').value).toISOString()
+            };
+            try {
+                const res = await fetch('/api/parking/bookings/', { method: 'POST', headers, body: JSON.stringify(body) });
+                const data = await res.json();
+                if(res.ok) {
+                    closeModal('booking-modal');
+                    loadMap();
+                    document.getElementById('qr-image').src = data.qr_code;
+                    document.getElementById('qr-details').innerHTML = `<strong>Booking ID:</strong> #${data.id}<br><strong>Place:</strong> ${data.place_number}<br><strong>Est. Price:</strong> ${data.estimated_price} DT`;
+                    document.getElementById('download-invoice-btn').href = `/api/parking/bookings/${data.id}/invoice/`;
+                    document.getElementById('qr-modal').classList.add('open');
+                } else alert('Booking Failed: ' + JSON.stringify(data));
+            } catch(e) { console.error(e); }
+        }
+
+        function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+        loadMap(); // Initial Load
+    </script>
+</body>
+</html>

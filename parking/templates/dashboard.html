@@ -1,1096 +1,141 @@
-{% extends 'base.html' %}
-{% block title %}SmartPark Pro — Dashboard{% endblock %}
-
-{% block content %}
-
-<!-- ===== DASHBOARD TAB ===== -->
-<div id="tab-dashboard" class="tab-content active">
-    <div class="stat-grid">
-        <div class="stat-card green">
-            <span class="stat-icon">✅</span>
-            <div class="stat-value text-green" id="stat-available">-</div>
-            <div class="stat-label">Available Places</div>
-            <div class="stat-sub" id="stat-available-sub">Loading...</div>
-        </div>
-        <div class="stat-card red">
-            <span class="stat-icon">🚗</span>
-            <div class="stat-value text-red" id="stat-occupied">-</div>
-            <div class="stat-label">Occupied Places</div>
-            <div class="stat-sub" id="stat-occupancy-rate">0% occupancy</div>
-        </div>
-        <div class="stat-card accent">
-            <span class="stat-icon">💰</span>
-            <div class="stat-value text-accent" id="stat-revenue-today">-</div>
-            <div class="stat-label">Revenue Today</div>
-            <div class="stat-sub" id="stat-revenue-month">This month: -</div>
-        </div>
-        <div class="stat-card blue">
-            <span class="stat-icon">💳</span>
-            <div class="stat-value" style="color:var(--blue)" id="stat-subscriptions">-</div>
-            <div class="stat-label">Active Subscriptions</div>
-            <div class="stat-sub">Registered clients</div>
-        </div>
-    </div>
-
-    <div class="grid-2">
-        <!-- Occupancy by floor -->
-        <div class="card">
-            <div class="card-title">Occupancy by Floor</div>
-            <div id="floor-stats">
-                <div class="text-muted text-sm">Loading...</div>
-            </div>
-        </div>
-
-        <!-- Revenue chart -->
-        <div class="card">
-            <div class="card-title">Revenue This Week</div>
-            <div class="chart-bars" id="revenue-chart">
-                <div class="chart-bar" style="height:60%"></div>
-                <div class="chart-bar" style="height:80%"></div>
-                <div class="chart-bar" style="height:40%"></div>
-                <div class="chart-bar" style="height:90%"></div>
-                <div class="chart-bar" style="height:50%"></div>
-                <div class="chart-bar" style="height:70%"></div>
-                <div class="chart-bar" style="height:100%"></div>
-            </div>
-            <div class="flex justify-between mt-2 text-xs text-muted" id="chart-labels">
-                <span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span>
-            </div>
-        </div>
-    </div>
-
-    <!-- Recent sessions -->
-    <div class="card">
-        <div class="flex justify-between items-center mb-3">
-            <div class="card-title" style="margin-bottom:0">Recent Sessions</div>
-            <button class="btn btn-outline btn-sm" onclick="openExitModal()">Exit Vehicle</button>
-        </div>
-        <table>
-            <thead>
-                <tr>
-                    <th>#</th><th>Plate</th><th>Vehicle</th><th>Place</th><th>Entry</th><th>Duration</th><th>Price</th><th>Status</th><th>Action</th>
-                </tr>
-            </thead>
-            <tbody id="recent-sessions-table">
-                <tr><td colspan="9" class="text-muted text-sm">Loading...</td></tr>
-            </tbody>
-        </table>
-    </div>
-</div>
-
-<!-- ===== MAP TAB ===== -->
-<div id="tab-map" class="tab-content">
-    <div class="card mb-4">
-        <div class="flex justify-between items-center mb-4">
-            <div style="display:flex;gap:12px;align-items:center;width:100%;justify-content:space-between">
-                <div style="display:flex;gap:12px;align-items:center">
-                    <div class="card-title" style="margin-bottom:0">Parking Map — Real-time</div>
-                    <div style="display:flex;gap:8px;align-items:center;margin-left:8px;">
-                        <input id="map-search" class="form-control" style="width:220px;" placeholder="Search place number (e.g. A01)">
-                        <input id="map-floor" type="number" class="form-control" style="width:100px;" placeholder="Floor">
-                        <button class="btn btn-outline btn-sm" onclick="applyMapFilters()">Search</button>
-                        <button class="btn btn-outline btn-sm" onclick="clearMapFilters()">Clear</button>
-                    </div>
-                </div>
-                <div style="display:flex;gap:12px;font-size:12px;align-items:center;">
-                <span>🟢 Free</span>
-                <span>🔴 Occupied</span>
-                <span>🟡 Reserved</span>
-                <span>🔵 Electric</span>
-                <button class="btn btn-outline btn-sm" onclick="loadParkingMap()">↺ Refresh</button>
-                </div>
-            </div>
-        </div>
-        <div id="parking-map-container">
-            <div class="text-muted text-sm">Loading map...</div>
-        </div>
-    </div>
-</div>
-
-<!-- ===== SESSIONS TAB ===== -->
-<div id="tab-sessions" class="tab-content">
-    <div class="flex justify-between items-center mb-4">
-        <div class="font-bold">Active Sessions</div>
-        <div style="display:flex;gap:10px;">
-            <button class="btn btn-accent btn-sm" onclick="openEntryModal()">+ Vehicle Entry</button>
-            <button class="btn btn-danger btn-sm" onclick="openExitModal()">Exit Vehicle</button>
-        </div>
-    </div>
-    <div class="card">
-        <table>
-            <thead>
-                <tr><th>#</th><th>Plate</th><th>Vehicle</th><th>Owner</th><th>Place</th><th>Floor</th><th>Entry Time</th><th>Duration</th><th>Sub?</th><th>Actions</th></tr>
-            </thead>
-            <tbody id="active-sessions-table">
-                <tr><td colspan="10" class="text-muted text-sm">Loading...</td></tr>
-            </tbody>
-        </table>
-    </div>
-</div>
-
-<!-- ===== HISTORY TAB ===== -->
-<div id="tab-history" class="tab-content">
-    <div class="card mb-4">
-        <div class="card-title">Filter History</div>
-        <div class="form-row">
-            <div class="form-group">
-                <label>From Date</label>
-                <input type="date" id="filter-from" class="form-control">
-            </div>
-            <div class="form-group">
-                <label>To Date</label>
-                <input type="date" id="filter-to" class="form-control">
-            </div>
-            <div class="form-group">
-                <label>Plate Number</label>
-                <input type="text" id="filter-plate" class="form-control" placeholder="e.g. TUN1234">
-            </div>
-            <div class="form-group" style="justify-content:flex-end;">
-                <label>&nbsp;</label>
-                <button class="btn btn-accent" onclick="loadHistory()">Search</button>
-            </div>
-        </div>
-    </div>
-    <div class="card">
-        <div class="card-title">Entry/Exit History</div>
-        <table>
-            <thead>
-                <tr><th>#</th><th>Plate</th><th>Place</th><th>Entry</th><th>Exit</th><th>Duration</th><th>Price</th><th>Sub?</th></tr>
-            </thead>
-            <tbody id="history-table">
-                <tr><td colspan="8" class="text-muted text-sm">Use the filters above or click Search</td></tr>
-            </tbody>
-        </table>
-    </div>
-</div>
-
-<!-- ===== VEHICLES TAB ===== -->
-<div id="tab-vehicles" class="tab-content">
-    <div class="flex justify-between items-center mb-4">
-        <div class="font-bold">Registered Vehicles</div>
-        <button class="btn btn-accent btn-sm" onclick="showAddVehicle()">+ Add Vehicle</button>
-    </div>
-    <div id="add-vehicle-form" style="display:none" class="card mb-4">
-        <div class="card-title">Add Vehicle</div>
-        <div class="form-row">
-            <div class="form-group" id="v-owner-group">
-                <label>Owner (User ID)</label>
-                <input type="number" id="v-owner" class="form-control" placeholder="User ID">
-            </div>
-            <div class="form-group">
-                <label>Plate Number</label>
-                <input type="text" id="v-plate" class="form-control" placeholder="e.g. TUN1234">
-            </div>
-            <div class="form-group">
-                <label>Brand</label>
-                <input type="text" id="v-brand" class="form-control" placeholder="e.g. Toyota">
-            </div>
-            <div class="form-group">
-                <label>Model</label>
-                <input type="text" id="v-model" class="form-control" placeholder="e.g. Corolla">
-            </div>
-            <div class="form-group">
-                <label>Color</label>
-                <input type="text" id="v-color" class="form-control" placeholder="e.g. White">
-            </div>
-            <div class="form-group">
-                <label>Type</label>
-                <select id="v-type" class="form-control">
-                    <option value="car">Car</option>
-                    <option value="motorcycle">Motorcycle</option>
-                    <option value="truck">Truck</option>
-                    <option value="electric">Electric</option>
-                </select>
-            </div>
-        </div>
-        <div style="display:flex;gap:10px;">
-            <button class="btn btn-accent" onclick="addVehicle()">Save Vehicle</button>
-            <button class="btn btn-outline" onclick="document.getElementById('add-vehicle-form').style.display='none'">Cancel</button>
-        </div>
-    </div>
-    <div class="card">
-        <table>
-            <thead>
-                <tr><th>#</th><th>Plate</th><th>Brand/Model</th><th>Color</th><th>Type</th><th>Owner</th><th>Sessions</th><th>Actions</th></tr>
-            </thead>
-            <tbody id="vehicles-table">
-                <tr><td colspan="8" class="text-muted text-sm">Loading...</td></tr>
-            </tbody>
-        </table>
-    </div>
-</div>
-
-<!-- ===== SUBSCRIPTIONS TAB ===== -->
-<div id="tab-subscriptions" class="tab-content">
-    <div class="flex justify-between items-center mb-4">
-        <div class="font-bold">Subscriptions</div>
-        <button class="btn btn-accent btn-sm" onclick="showAddSub()">+ New Subscription</button>
-    </div>
-    <div id="add-sub-form" style="display:none" class="card mb-4">
-        <div class="card-title">Create Subscription</div>
-        <div class="form-row">
-            <div class="form-group">
-                <label>User ID</label>
-                <input type="number" id="sub-user" class="form-control">
-            </div>
-            <div class="form-group">
-                <label>Vehicle ID</label>
-                <input type="number" id="sub-vehicle" class="form-control">
-            </div>
-            <div class="form-group">
-                <label>Plan</label>
-                <select id="sub-plan" class="form-control" onchange="updateSubPrice()">
-                    <option value="daily">Daily — 15 DT</option>
-                    <option value="weekly">Weekly — 70 DT</option>
-                    <option value="monthly">Monthly — 250 DT</option>
-                    <option value="annual">Annual — 2500 DT</option>
-                </select>
-            </div>
-            <div class="form-group">
-                <label>Start Date</label>
-                <input type="date" id="sub-start" class="form-control">
-            </div>
-            <div class="form-group">
-                <label>Auto-Renew</label>
-                <select id="sub-renew" class="form-control">
-                    <option value="false">No</option>
-                    <option value="true">Yes</option>
-                </select>
-            </div>
-        </div>
-        <div style="display:flex;gap:10px;">
-            <button class="btn btn-accent" onclick="addSubscription()">Create Subscription</button>
-            <button class="btn btn-outline" onclick="document.getElementById('add-sub-form').style.display='none'">Cancel</button>
-        </div>
-    </div>
-    <div class="grid-2 mb-4">
-        <div class="card" style="margin-bottom:0">
-            <div class="card-title">Active Subscriptions</div>
-            <div id="active-subs-list">Loading...</div>
-        </div>
-        <div class="card" style="margin-bottom:0">
-            <div class="card-title" style="color:var(--yellow)">⚠️ Expiring Soon</div>
-            <div id="expiring-subs-list">Loading...</div>
-        </div>
-    </div>
-    <div class="card">
-        <div class="card-title">All Subscriptions</div>
-        <table>
-            <thead>
-                <tr><th>#</th><th>User</th><th>Vehicle</th><th>Plan</th><th>Price</th><th>Start</th><th>End</th><th>Days Left</th><th>Status</th><th>Actions</th></tr>
-            </thead>
-            <tbody id="subscriptions-table">
-                <tr><td colspan="10" class="text-muted text-sm">Loading...</td></tr>
-            </tbody>
-        </table>
-    </div>
-</div>
-
-<!-- ===== ALERTS TAB ===== -->
-<div id="tab-alerts" class="tab-content">
-    <div class="flex justify-between items-center mb-4">
-        <div class="font-bold">Alerts & Notifications</div>
-        <button class="btn btn-outline btn-sm" onclick="markAllRead()">Mark All Read</button>
-    </div>
-    <div id="alerts-list">
-        <div class="text-muted text-sm">Loading alerts...</div>
-    </div>
-</div>
-
-<!-- ===== TARIFFS TAB ===== -->
-<div id="tab-tariffs" class="tab-content">
-    <div class="flex justify-between items-center mb-4">
-        <div class="font-bold">Tariff Management</div>
-        <button class="btn btn-accent btn-sm" onclick="showAddTariff()">+ Add Tariff</button>
-    </div>
-    <div id="add-tariff-form" style="display:none" class="card mb-4">
-        <div class="card-title">Create Tariff</div>
-        <div class="form-row">
-            <div class="form-group">
-                <label>Name</label>
-                <input type="text" id="t-name" class="form-control" placeholder="e.g. Standard Weekday">
-            </div>
-            <div class="form-group">
-                <label>Place Type</label>
-                <select id="t-type" class="form-control">
-                    <option value="standard">Standard</option>
-                    <option value="vip">VIP</option>
-                    <option value="electric">Electric</option>
-                    <option value="handicapped">Handicapped</option>
-                </select>
-            </div>
-            <div class="form-group">
-                <label>Base Rate (1st hour) DT</label>
-                <input type="number" id="t-base" class="form-control" value="2.00" step="0.5">
-            </div>
-            <div class="form-group">
-                <label>Hourly Rate (after) DT</label>
-                <input type="number" id="t-hourly" class="form-control" value="1.50" step="0.5">
-            </div>
-            <div class="form-group">
-                <label>Daily Max DT</label>
-                <input type="number" id="t-max" class="form-control" value="20.00" step="1">
-            </div>
-        </div>
-        <div style="display:flex;gap:10px;">
-            <button class="btn btn-accent" onclick="addTariff()">Save Tariff</button>
-            <button class="btn btn-outline" onclick="document.getElementById('add-tariff-form').style.display='none'">Cancel</button>
-        </div>
-    </div>
-    <div class="card">
-        <table>
-            <thead>
-                <tr><th>#</th><th>Name</th><th>Type</th><th>Base Rate</th><th>Hourly Rate</th><th>Daily Max</th><th>Status</th></tr>
-            </thead>
-            <tbody id="tariffs-table">
-                <tr><td colspan="7" class="text-muted text-sm">Loading...</td></tr>
-            </tbody>
-        </table>
-    </div>
-</div>
-
-<!-- ===== PLACES MGMT TAB ===== -->
-<div id="tab-places-mgmt" class="tab-content">
-    <div class="flex justify-between items-center mb-4">
-        <div class="font-bold">Place Management</div>
-        <button class="btn btn-accent btn-sm" onclick="showAddPlace()">+ Add Place</button>
-    </div>
-    <div id="add-place-form" style="display:none" class="card mb-4">
-        <div class="card-title">Add Parking Place</div>
-        <div class="form-row">
-            <div class="form-group">
-                <label>Number</label>
-                <input type="text" id="p-num" class="form-control" placeholder="e.g. A01">
-            </div>
-            <div class="form-group">
-                <label>Floor</label>
-                <input type="number" id="p-floor" class="form-control" value="1">
-            </div>
-            <div class="form-group">
-                <label>Type</label>
-                <select id="p-type" class="form-control">
-                    <option value="standard">Standard</option>
-                    <option value="vip">VIP</option>
-                    <option value="electric">Electric</option>
-                    <option value="handicapped">Handicapped</option>
-                </select>
-            </div>
-        </div>
-        <div style="display:flex;gap:10px;">
-            <button class="btn btn-accent" onclick="addPlace()">Add Place</button>
-            <button class="btn btn-outline" onclick="document.getElementById('add-place-form').style.display='none'">Cancel</button>
-        </div>
-    </div>
-    <div class="card">
-        <table>
-            <thead>
-                <tr><th>#</th><th>Number</th><th>Floor</th><th>Type</th><th>Status</th><th>Actions</th></tr>
-            </thead>
-            <tbody id="places-table">
-                <tr><td colspan="6" class="text-muted text-sm">Loading...</td></tr>
-            </tbody>
-        </table>
-    </div>
-</div>
-
-<!-- ===== BOOKINGS TAB (for clients) ===== -->
-<div id="tab-bookings" class="tab-content">
-    <div class="flex justify-between items-center mb-4">
-        <div class="font-bold">My Bookings</div>
-        <button class="btn btn-accent btn-sm" onclick="openBookingModal()">+ New Booking</button>
-    </div>
-    <div class="card">
-        <table>
-            <thead>
-                <tr><th>#</th><th>Place</th><th>Vehicle</th><th>From</th><th>To</th><th>Price</th><th>Status</th><th>Ticket</th></tr>
-            </thead>
-            <tbody id="bookings-table">
-                <tr><td colspan="8" class="text-muted text-sm">Loading your bookings...</td></tr>
-            </tbody>
-        </table>
-    </div>
-</div>
-
-{% endblock %}
-
-{% block extra_js %}
-
-<!-- Booking Modal -->
-<div class="modal-overlay" id="booking-modal">
-    <div class="modal">
-        <div class="flex justify-between items-center mb-4">
-            <div class="modal-title">📅 Book a Parking Spot</div>
-            <button class="btn btn-outline btn-sm" onclick="closeModal('booking-modal')">✕</button>
-        </div>
-        <div class="form-row">
-            <div class="form-group">
-                <label>Your Vehicle</label>
-                <select id="book-vehicle" class="form-control"></select>
-            </div>
-            <div class="form-group">
-                <label>Entry Date & Time</label>
-                <input type="datetime-local" id="book-start" class="form-control">
-            </div>
-            <div class="form-group">
-                <label>Exit Date & Time</label>
-                <input type="datetime-local" id="book-end" class="form-control">
-            </div>
-        </div>
-        <div style="display:flex;gap:10px;margin-top:8px;">
-            <button class="btn btn-accent" onclick="submitBooking()">Find Spot & Book</button>
-            <button class="btn btn-outline" onclick="closeModal('booking-modal')">Cancel</button>
-        </div>
-    </div>
-</div>
-
-<!-- Booking Confirmation / QR Modal -->
-<div class="modal-overlay" id="booking-qr-modal">
-    <div class="modal" style="text-align:center;max-width:420px;">
-        <div class="flex justify-between items-center mb-4">
-            <div class="modal-title">✅ Booking Confirmed!</div>
-            <button class="btn btn-outline btn-sm" onclick="closeModal('booking-qr-modal')">✕</button>
-        </div>
-        <div id="booking-qr-info" style="margin-bottom:16px;background:var(--surface2);border-radius:10px;padding:14px;text-align:left;font-size:13px;"></div>
-        <div style="background:#fff;border-radius:12px;padding:16px;display:inline-block;margin-bottom:16px;">
-            <img id="booking-qr-image" src="" alt="QR Code" style="width:200px;height:200px;display:block;">
-        </div>
-        <div class="text-xs text-muted mb-4">Scan this QR code at the entry gate at your booking time.</div>
-        <div style="display:flex;gap:10px;justify-content:center;">
-            <button class="btn btn-outline" onclick="closeModal('booking-qr-modal')">Close</button>
-        </div>
-    </div>
-</div>
-
-<script>
-const API = '/api/parking';
-const H = { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') };
-
-// =================== DASHBOARD ===================
-async function loadDashboard() {
-    try {
-        const [stats, revenue, subs, alerts] = await Promise.all([
-            fetch(`${API}/places/stats/`).then(r=>r.json()),
-            fetch(`${API}/sessions/revenue/`).then(r=>r.json()),
-            fetch(`${API}/subscriptions/active/`).then(r=>r.json()),
-            fetch(`${API}/alerts/unread/`).then(r=>r.json()),
-        ]);
-
-        if (CURRENT_USER_ROLE === 'client') {
-            // Hide irrelevant money/admin metrics for simple workers
-            document.getElementById('stat-revenue-today').parentElement.style.display = 'none';
-            document.getElementById('stat-subscriptions').parentElement.style.display = 'none';
-            document.getElementById('revenue-chart').parentElement.closest('.card').style.display = 'none';
-            document.getElementById('recent-sessions-table').closest('.card').style.display = 'none';
-            document.getElementById('floor-stats').parentElement.style.gridColumn = '1 / -1';
-        }
-
-        document.getElementById('stat-available').textContent = stats.available;
-        document.getElementById('stat-occupied').textContent = stats.occupied;
-        document.getElementById('stat-occupancy-rate').textContent = `${stats.occupancy_rate}% occupancy`;
-        document.getElementById('stat-available-sub').textContent = `of ${stats.total} total places`;
-        document.getElementById('stat-revenue-today').textContent = `${revenue.today} DT`;
-        document.getElementById('stat-revenue-month').textContent = `This month: ${revenue.month} DT`;
-        document.getElementById('stat-subscriptions').textContent = subs.length;
-
-        // Floor stats
-        const floorHtml = stats.by_floor.map(f => `
-            <div style="margin-bottom:12px;">
-                <div class="flex justify-between text-sm mb-1">
-                    <span>Floor ${f.floor}</span>
-                    <span class="text-muted">${f.occupied}/${f.total}</span>
-                </div>
-                <div class="progress-bar">
-                    <div class="progress-fill" style="width:${f.total > 0 ? (f.occupied/f.total*100) : 0}%;background:${f.occupied/f.total > 0.8 ? 'var(--red)' : f.occupied/f.total > 0.5 ? 'var(--yellow)' : 'var(--green)'}"></div>
-                </div>
-            </div>
-        `).join('');
-        document.getElementById('floor-stats').innerHTML = floorHtml || '<div class="text-muted text-sm">No floors data</div>';
-
-        // Alerts badge
-        const alertCount = alerts.length;
-        const badge = document.getElementById('alert-count');
-        if (alertCount > 0) { badge.style.display = 'inline'; badge.textContent = alertCount; }
-        else { badge.style.display = 'none'; }
-
-        // Recent sessions
-        if (CURRENT_USER_ROLE !== 'client') {
-        const sessions = await fetch(`${API}/sessions/?ordering=-entry_time`).then(r=>r.json());
-        const sessionData = sessions.results || sessions;
-        const tbody = document.getElementById('recent-sessions-table');
-        if (!sessionData.length) {
-            tbody.innerHTML = '<tr><td colspan="9" class="text-muted text-sm">No sessions yet</td></tr>';
-        } else {
-            tbody.innerHTML = sessionData.slice(0,10).map(s => `
-                <tr>
-                    <td class="text-muted text-xs">#${s.id}</td>
-                    <td><strong>${s.vehicle_plate||'—'}</strong></td>
-                    <td class="text-muted text-xs">${s.vehicle||'—'}</td>
-                    <td><span class="badge badge-blue">${s.place_number||'—'} F${s.place_floor||'?'}</span></td>
-                    <td class="text-xs text-muted">${new Date(s.entry_time).toLocaleString('fr-FR')}</td>
-                    <td class="text-xs">${s.duration_display||'—'}</td>
-                    <td>${s.total_price != null ? `<strong>${s.total_price} DT</strong>` : '—'}</td>
-                    <td>${s.is_active ? '<span class="badge badge-green">Active</span>' : '<span class="badge badge-red">Closed</span>'}</td>
-                    <td>${s.is_active ? `<button class="btn btn-danger btn-sm" onclick="quickExit(${s.id})">Exit</button>` : ''}</td>
-                </tr>
-            `).join('');
-        }
-        }
-    } catch(e) { console.error(e); }
-}
-
-// =================== MAP ===================
-async function loadParkingMap() {
-    try {
-        const data = await fetch(`${API}/places/`).then(r=>r.json());
-        const places = data.results || data;
-        const floors = [...new Set(places.map(p=>p.floor))].sort();
-        let html = '';
-        for (const floor of floors) {
-            const floorPlaces = places.filter(p => p.floor === floor);
-            html += `<div style="margin-bottom:20px;">
-                <div class="text-sm font-bold mb-2" style="color:var(--muted);text-transform:uppercase;letter-spacing:1px;">Floor ${floor} — ${floorPlaces.filter(p=>!p.is_occupied && !p.is_reserved).length} free / ${floorPlaces.length}</div>
-                <div class="place-grid">
-                ${floorPlaces.map(p => {
-                    let cls = p.is_occupied ? 'occupied' : (p.is_reserved ? 'reserved' : 'free');
-                    if (p.place_type === 'electric' && !p.is_occupied) cls = 'electric';
-                    const icons = { standard: '', vip: '⭐', electric: '⚡', handicapped: '♿' };
-                    
-                    let clickAttr = '';
-                    if (!p.is_occupied) {
-                        // If already reserved, allow unreserve; otherwise open booking modal for this place
-                        if (p.is_reserved) clickAttr = `onclick="toggleReserve(${p.id}, ${p.is_reserved})" style="cursor:pointer;"`;
-                        else clickAttr = `onclick="openBookingForPlace(${p.id}, '${p.number}')" style="cursor:pointer;"`;
-                    } else {
-                        clickAttr = `style="cursor:not-allowed;"`;
-                    }
-                    return `<div class="place-cell ${cls}" title="${p.number} — ${p.place_type} — ${p.status}" ${clickAttr}>${icons[p.place_type]||''}${p.number}</div>`;
-                }).join('')}
-                </div>
-            </div>`;
-        }
-        document.getElementById('parking-map-container').innerHTML = html || '<div class="text-muted text-sm">No places found. Add places first.</div>';
-    } catch(e) { console.error(e); }
-}
-
-// =================== SESSIONS ===================
-async function loadActiveSessions() {
-    try {
-        const data = await fetch(`${API}/sessions/active/`).then(r=>r.json());
-        const sessions = data.results || data;
-        const tbody = document.getElementById('active-sessions-table');
-        if (!sessions.length) {
-            tbody.innerHTML = '<tr><td colspan="10" class="text-muted text-sm">No active sessions</td></tr>';
-            return;
-        }
-        tbody.innerHTML = sessions.map(s => `
-            <tr>
-                <td class="text-muted text-xs">#${s.id}</td>
-                <td><strong>${s.vehicle_plate||'—'}</strong></td>
-                <td class="text-xs text-muted">${s.vehicle||'—'}</td>
-                <td class="text-xs text-muted">—</td>
-                <td><span class="badge badge-blue">${s.place_number||'—'}</span></td>
-                <td>${s.place_floor||'—'}</td>
-                <td class="text-xs">${new Date(s.entry_time).toLocaleString('fr-FR')}</td>
-                <td class="text-accent">${s.duration_display||'—'}</td>
-                <td>${s.is_subscription_session ? '<span class="badge badge-purple">Sub</span>' : '<span class="badge badge-yellow">Pay</span>'}</td>
-                <td>
-                    <button class="btn btn-danger btn-sm" onclick="quickExit(${s.id})">Exit</button>
-                </td>
-            </tr>
-        `).join('');
-    } catch(e) { console.error(e); }
-}
-
-async function quickExit(sessionId) {
-    if (!confirm(`Confirm exit for session #${sessionId}?`)) return;
-    try {
-        const r = await fetch(`${API}/sessions/${sessionId}/exit/`, { method: 'POST', headers: H });
-        const d = await r.json();
-        if (r.ok) {
-            toast(`✅ Exit done! Duration: ${d.duration_display} — Price: ${d.total_price} DT`);
-            refreshAll();
-        } else toast(JSON.stringify(d), 'error');
-    } catch(e) { toast('Error: ' + e, 'error'); }
-}
-
-// =================== HISTORY ===================
-async function loadHistory() {
-    const from = document.getElementById('filter-from').value;
-    const to = document.getElementById('filter-to').value;
-    const plate = document.getElementById('filter-plate').value;
-    let url = `${API}/sessions/history/?`;
-    if (from) url += `from=${from}&`;
-    if (to) url += `to=${to}&`;
-    if (plate) url += `plate=${plate}&`;
-    try {
-        const data = await fetch(url).then(r=>r.json());
-        const sessions = data.results || data;
-        const tbody = document.getElementById('history-table');
-        if (!sessions.length) {
-            tbody.innerHTML = '<tr><td colspan="8" class="text-muted text-sm">No results found</td></tr>';
-            return;
-        }
-        tbody.innerHTML = sessions.map(s => `
-            <tr>
-                <td class="text-muted text-xs">#${s.id}</td>
-                <td><strong>${s.vehicle_plate||'—'}</strong></td>
-                <td><span class="badge badge-blue">${s.place_number||'—'} F${s.place_floor||'?'}</span></td>
-                <td class="text-xs">${new Date(s.entry_time).toLocaleString('fr-FR')}</td>
-                <td class="text-xs">${s.exit_time ? new Date(s.exit_time).toLocaleString('fr-FR') : '—'}</td>
-                <td>${s.duration_display||'—'}</td>
-                <td>${s.total_price != null ? `<strong>${s.total_price} DT</strong>` : '—'}</td>
-                <td>${s.is_subscription_session ? '<span class="badge badge-purple">Sub</span>' : '<span class="badge badge-yellow">Pay</span>'}</td>
-            </tr>
-        `).join('');
-    } catch(e) { console.error(e); }
-}
-
-// =================== VEHICLES ===================
-async function loadVehicles() {
-    try {
-        const resp = await fetch(`${API}/vehicles/`, { headers: H, credentials: 'same-origin' });
-        if (!resp.ok) {
-            if (resp.status === 401 || resp.status === 403) { toast('Not authorized. Please login.', 'error'); return; }
-            const txt = await resp.text().catch(()=>null);
-            console.error('Failed loading vehicles', resp.status, txt);
-            toast('Could not load vehicles.', 'error');
-            return;
-        }
-        const data = await resp.json();
-        const vehicles = data.results || data;
-        const tbody = document.getElementById('vehicles-table');
-        tbody.innerHTML = vehicles.map(v => `
-            <tr>
-                <td class="text-muted text-xs">#${v.id}</td>
-                <td><strong>${v.plate_number}</strong></td>
-                <td>${v.brand} ${v.model||''}</td>
-                <td>${v.color}</td>
-                <td><span class="badge badge-blue">${v.vehicle_type}</span></td>
-                <td class="text-xs text-muted">${v.owner_email||v.owner}</td>
-                <td>—</td>
-                <td>
-                    <button class="btn btn-outline btn-sm" onclick="openEntryForVehicle(${v.id})">Park</button>
-                </td>
-            </tr>
-        `).join('');
-    } catch(e) { console.error(e); }
-}
-
-function openEntryForVehicle(id) {
-    document.getElementById('modal-vehicle-id').value = id;
-    openEntryModal();
-}
-function showAddVehicle() { 
-    document.getElementById('add-vehicle-form').style.display = 'block'; 
-    if (CURRENT_USER_ROLE === 'client') {
-        document.getElementById('v-owner-group').style.display = 'none';
-        document.getElementById('v-owner').value = CURRENT_USER_ID;
-    }
-}
-
-async function addVehicle() {
-    const body = {
-        owner: document.getElementById('v-owner').value,
-        plate_number: document.getElementById('v-plate').value,
-        brand: document.getElementById('v-brand').value,
-        model: document.getElementById('v-model').value,
-        color: document.getElementById('v-color').value,
-        vehicle_type: document.getElementById('v-type').value,
-    };
-    try {
-        const r = await fetch(`${API}/vehicles/`, { method: 'POST', headers: H, body: JSON.stringify(body) });
-        const d = await r.json();
-        if (r.ok) { toast('Vehicle added!'); loadVehicles(); document.getElementById('add-vehicle-form').style.display='none'; }
-        else toast(JSON.stringify(d), 'error');
-    } catch(e) { toast('Error: '+e, 'error'); }
-}
-
-// =================== SUBSCRIPTIONS ===================
-async function loadSubscriptions() {
-    try {
-        const [all, active, expiring] = await Promise.all([
-            fetch(`${API}/subscriptions/`).then(r=>r.json()),
-            fetch(`${API}/subscriptions/active/`).then(r=>r.json()),
-            fetch(`${API}/subscriptions/expiring_soon/`).then(r=>r.json()),
-        ]);
-        const allList = all.results || all;
-
-        // Active list
-        const activeList = active.results || active;
-        document.getElementById('active-subs-list').innerHTML = activeList.length ?
-            activeList.map(s => `<div style="padding:8px 0;border-bottom:1px solid var(--border);" class="flex justify-between">
-                <div><strong class="text-sm">${s.vehicle_plate}</strong> <span class="text-muted text-xs">(${s.user_email})</span></div>
-                <div><span class="badge badge-green">${s.plan}</span> <span class="text-xs text-muted">${s.days_remaining}d left</span></div>
-            </div>`).join('') : '<div class="text-muted text-sm">No active subscriptions</div>';
-
-        // Expiring list
-        const expiringList = expiring.results || expiring;
-        document.getElementById('expiring-subs-list').innerHTML = expiringList.length ?
-            expiringList.map(s => `<div style="padding:8px 0;border-bottom:1px solid var(--border);" class="flex justify-between">
-                <div><strong class="text-sm">${s.vehicle_plate}</strong></div>
-                <div><span class="badge badge-yellow">${s.days_remaining}d left</span></div>
-            </div>`).join('') : '<div class="text-muted text-sm">None expiring soon</div>';
-
-        // Full table
-        const tbody = document.getElementById('subscriptions-table');
-        tbody.innerHTML = allList.map(s => `
-            <tr>
-                <td class="text-muted text-xs">#${s.id}</td>
-                <td class="text-xs">${s.user_email||s.user}</td>
-                <td>${s.vehicle_plate||s.vehicle}</td>
-                <td><span class="badge badge-purple">${s.plan}</span></td>
-                <td>${s.price} DT</td>
-                <td class="text-xs">${s.start_date}</td>
-                <td class="text-xs">${s.end_date}</td>
-                <td class="text-accent">${s.days_remaining || '—'}</td>
-                <td>${s.status === 'active' ? '<span class="badge badge-green">Active</span>' : s.status === 'expired' ? '<span class="badge badge-red">Expired</span>' : '<span class="badge badge-yellow">Cancelled</span>'}</td>
-                <td>${s.status === 'active' ? `<button class="btn btn-danger btn-sm" onclick="cancelSub(${s.id})">Cancel</button>` : ''}</td>
-            </tr>
-        `).join('');
-    } catch(e) { console.error(e); }
-}
-
-function showAddSub() {
-    document.getElementById('add-sub-form').style.display = 'block';
-    document.getElementById('sub-start').value = new Date().toISOString().split('T')[0];
-}
-
-async function addSubscription() {
-    const plan = document.getElementById('sub-plan').value;
-    const prices = { daily: 15, weekly: 70, monthly: 250, annual: 2500 };
-    const durations = { daily: 1, weekly: 7, monthly: 30, annual: 365 };
-    const start = document.getElementById('sub-start').value;
-    const startDate = new Date(start);
-    startDate.setDate(startDate.getDate() + durations[plan]);
-    const end = startDate.toISOString().split('T')[0];
-    const body = {
-        user: document.getElementById('sub-user').value,
-        vehicle: document.getElementById('sub-vehicle').value,
-        plan,
-        price: prices[plan],
-        start_date: start,
-        end_date: end,
-        auto_renew: document.getElementById('sub-renew').value === 'true',
-    };
-    try {
-        const r = await fetch(`${API}/subscriptions/`, { method: 'POST', headers: H, body: JSON.stringify(body) });
-        const d = await r.json();
-        if (r.ok) { toast('Subscription created!'); loadSubscriptions(); document.getElementById('add-sub-form').style.display='none'; }
-        else toast(JSON.stringify(d), 'error');
-    } catch(e) { toast('Error: '+e, 'error'); }
-}
-
-async function cancelSub(id) {
-    if (!confirm('Cancel this subscription?')) return;
-    try {
-        const r = await fetch(`${API}/subscriptions/${id}/cancel/`, { method: 'POST', headers: H });
-        if (r.ok) { toast('Subscription cancelled'); loadSubscriptions(); }
-    } catch(e) { toast('Error: '+e, 'error'); }
-}
-
-// =================== ALERTS ===================
-async function loadAlerts() {
-    try {
-        const data = await fetch(`${API}/alerts/`).then(r=>r.json());
-        const alerts = data.results || data;
-        const badge = document.getElementById('alert-count');
-        const unread = alerts.filter(a => !a.is_read).length;
-        if (unread > 0) { badge.style.display = 'inline'; badge.textContent = unread; }
-        else badge.style.display = 'none';
-
-        document.getElementById('alerts-list').innerHTML = alerts.length ?
-            alerts.map(a => `
-                <div class="alert-item ${a.severity}" style="${a.is_read ? 'opacity:0.5' : ''}">
-                    <div style="font-size:18px">${a.severity === 'critical' ? '🔴' : a.severity === 'warning' ? '🟡' : 'ℹ️'}</div>
-                    <div style="flex:1">
-                        <div class="text-sm" style="font-weight:500">${a.message}</div>
-                        <div class="text-xs text-muted mt-2">${new Date(a.created_at).toLocaleString('fr-FR')} — ${a.alert_type}</div>
-                    </div>
-                    ${!a.is_read ? `<button class="btn btn-outline btn-sm" onclick="markRead(${a.id})">Mark Read</button>` : '<span class="text-xs text-muted">Read</span>'}
-                </div>
-            `).join('') : '<div class="text-muted text-sm">No alerts</div>';
-    } catch(e) { console.error(e); }
-}
-
-async function markRead(id) {
-    await fetch(`${API}/alerts/${id}/mark_read/`, { method: 'POST', headers: H });
-    loadAlerts();
-}
-
-async function markAllRead() {
-    await fetch(`${API}/alerts/mark_all_read/`, { method: 'POST', headers: H });
-    loadAlerts();
-    toast('All alerts marked as read', 'info');
-}
-
-// =================== TARIFFS ===================
-async function loadTariffs() {
-    try {
-        const data = await fetch(`${API}/tariffs/`).then(r=>r.json());
-        const tariffs = data.results || data;
-        const tbody = document.getElementById('tariffs-table');
-        tbody.innerHTML = tariffs.length ? tariffs.map(t => `
-            <tr>
-                <td class="text-muted text-xs">#${t.id}</td>
-                <td>${t.name}</td>
-                <td><span class="badge badge-blue">${t.place_type}</span></td>
-                <td>${t.base_rate} DT</td>
-                <td>${t.hourly_rate} DT/h</td>
-                <td>${t.daily_max} DT max</td>
-                <td>${t.is_active ? '<span class="badge badge-green">Active</span>' : '<span class="badge badge-red">Inactive</span>'}</td>
-            </tr>
-        `).join('') : '<tr><td colspan="7" class="text-muted text-sm">No tariffs configured</td></tr>';
-    } catch(e) { console.error(e); }
-}
-
-function showAddTariff() { document.getElementById('add-tariff-form').style.display = 'block'; }
-
-async function addTariff() {
-    const body = {
-        name: document.getElementById('t-name').value,
-        place_type: document.getElementById('t-type').value,
-        base_rate: document.getElementById('t-base').value,
-        hourly_rate: document.getElementById('t-hourly').value,
-        daily_max: document.getElementById('t-max').value,
-    };
-    try {
-        const r = await fetch(`${API}/tariffs/`, { method: 'POST', headers: H, body: JSON.stringify(body) });
-        const d = await r.json();
-        if (r.ok) { toast('Tariff added!'); loadTariffs(); document.getElementById('add-tariff-form').style.display='none'; }
-        else toast(JSON.stringify(d), 'error');
-    } catch(e) { toast('Error: '+e, 'error'); }
-}
-
-// =================== PLACES MGMT ===================
-async function loadPlaces() {
-    try {
-        const data = await fetch(`${API}/places/`).then(r=>r.json());
-        const places = data.results || data;
-        const tbody = document.getElementById('places-table');
-        tbody.innerHTML = places.map(p => `
-            <tr>
-                <td class="text-muted text-xs">#${p.id}</td>
-                <td><strong>${p.number}</strong></td>
-                <td>Floor ${p.floor}</td>
-                <td><span class="badge badge-blue">${p.place_type}</span></td>
-                <td>${p.is_occupied ? '<span class="badge badge-red">Occupied</span>' : p.is_reserved ? '<span class="badge badge-yellow">Reserved</span>' : '<span class="badge badge-green">Free</span>'}</td>
-                <td>
-                    ${!p.is_occupied ? `<button class="btn btn-outline btn-sm" onclick="toggleReserve(${p.id}, ${p.is_reserved})">${p.is_reserved ? 'Unreserve' : 'Reserve'}</button>` : ''}
-                </td>
-            </tr>
-        `).join('');
-    } catch(e) { console.error(e); }
-}
-
-function showAddPlace() { document.getElementById('add-place-form').style.display='block'; }
-
-async function addPlace() {
-    const body = {
-        number: document.getElementById('p-num').value,
-        floor: document.getElementById('p-floor').value,
-        place_type: document.getElementById('p-type').value,
-    };
-    try {
-        const r = await fetch(`${API}/places/`, { method: 'POST', headers: H, body: JSON.stringify(body) });
-        const d = await r.json();
-        if (r.ok) { toast('Place added!'); loadPlaces(); document.getElementById('add-place-form').style.display='none'; }
-        else toast(JSON.stringify(d), 'error');
-    } catch(e) { toast('Error: '+e, 'error'); }
-}
-
-async function toggleReserve(id, currentState) {
-    if (currentState) {
-        if (!confirm('Cancel this reservation?')) return;
-        try {
-            const r = await fetch(`${API}/places/${id}/unreserve/`, { method: 'POST', headers: H });
-            if (r.ok) { toast('Reservation cancelled'); loadPlaces(); loadParkingMap(); loadDashboard(); }
-            else { const d = await r.json(); toast(d.error || 'Cannot cancel', 'error'); }
-        } catch(e) { toast('Error: '+e, 'error'); }
-    } else {
-        if (!confirm('Reserve this place for your vehicle?')) return;
-        try {
-            const r = await fetch(`${API}/places/${id}/reserve/`, { method: 'POST', headers: H });
-            if (r.ok) { toast('Place reserved successfully!'); loadPlaces(); loadParkingMap(); loadDashboard(); }
-            else { const d = await r.json(); toast(d.error || 'Cannot reserve', 'error'); }
-        } catch(e) { toast('Error: '+e, 'error'); }
-    }
-}
-
-// =================== BOOKINGS ===================
-async function loadMyBookings() {
-    if (CURRENT_USER_ROLE !== 'client') return;
-    try {
-        const data = await fetch(`${API}/bookings/?ordering=-start_time`).then(r=>r.json());
-        const bookings = data.results || data;
-        const tbody = document.getElementById('bookings-table');
-        if (!bookings.length) {
-            tbody.innerHTML = '<tr><td colspan="8" class="text-muted text-sm" style="text-align:center;padding:20px;">You have no bookings.</td></tr>';
-            return;
-        }
-        tbody.innerHTML = bookings.map(b => `
-            <tr>
-                <td class="text-muted text-xs">#${b.id}</td>
-                <td><span class="badge badge-blue">${b.place_number || 'N/A'}</span></td>
-                <td><strong>${b.vehicle_plate}</strong></td>
-                <td class="text-xs">${new Date(b.start_time).toLocaleString('fr-FR')}</td>
-                <td class="text-xs">${new Date(b.end_time).toLocaleString('fr-FR')}</td>
-                <td><strong>${b.estimated_price} DT</strong></td>
-                <td><span class="badge ${b.status === 'confirmed' ? 'badge-green' : 'badge-yellow'}">${b.status}</span></td>
-                <td>
-                    ${b.qr_code ? `<button class="btn btn-outline btn-sm" onclick="showBookingQR(${b.id})">Show QR</button>` : ''}
-                </td>
-            </tr>
-        `).join('');
-    } catch(e) { console.error(e); }
-}
-
-async function openBookingModal() {
-    try {
-        const resp = await fetch(`${API}/vehicles/`, { headers: H, credentials: 'same-origin' });
-        if (!resp.ok) {
-            if (resp.status === 401 || resp.status === 403) { toast('Not authorized. Please login.', 'error'); return; }
-            const txt = await resp.text().catch(()=>null);
-            console.error('Failed loading vehicles', resp.status, txt);
-            toast('Could not load vehicles.', 'error');
-            return;
-        }
-        const data = await resp.json();
-        const vehicles = data.results || data;
-        const select = document.getElementById('book-vehicle');
-        if (!vehicles.length) {
-            toast('You must add a vehicle first!', 'error');
-            window.showTab('vehicles');
-            return;
-        }
-        select.innerHTML = vehicles.map(v => `<option value="${v.id}">${v.plate_number} (${v.brand})</option>`).join('');
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Admin Dashboard - Parki Karhabti</title>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        :root { --bg: #0a0c10; --surface: #12151c; --border: #2a2f3d; --accent: #00e5a0; --text: #e8eaf0; --muted: #6b7280; }
+        body { background: var(--bg); color: var(--text); font-family: 'DM Sans', sans-serif; margin: 0; }
+        .navbar { display: flex; justify-content: space-between; align-items: center; padding: 15px 30px; background: var(--surface); border-bottom: 1px solid var(--border); }
+        .container { padding: 30px; max-width: 1200px; margin: auto; }
         
-        const start = new Date();
-        start.setMinutes(start.getMinutes() + 15 - (start.getMinutes() % 15));
-        start.setSeconds(0);
-        start.setMilliseconds(0);
-        const end = new Date(start.getTime() + (60 * 60 * 1000));
+        .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 30px; }
+        .stat-card { background: #1a1e28; padding: 25px; border-radius: 12px; border: 1px solid var(--border); text-align: center; }
+        .stat-card h3 { margin: 0 0 10px 0; font-size: 14px; color: var(--muted); text-transform: uppercase; }
+        .stat-value { font-size: 32px; font-weight: bold; }
         
-        const tzOffset = new Date().getTimezoneOffset() * 60000;
-        document.getElementById('book-start').value = new Date(start.getTime() - tzOffset).toISOString().slice(0,16);
-        document.getElementById('book-end').value = new Date(end.getTime() - tzOffset).toISOString().slice(0,16);
+        table { width: 100%; border-collapse: collapse; background: var(--surface); border-radius: 12px; overflow: hidden; border: 1px solid var(--border); }
+        th, td { padding: 15px; text-align: left; border-bottom: 1px solid var(--border); }
+        th { background: #1a1e28; color: var(--muted); font-size: 12px; text-transform: uppercase; }
+        
+        .btn { padding: 10px 20px; background: var(--accent); color: #000; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; text-decoration: none; font-size: 14px;}
+        .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text); }
+        .btn-danger { background: rgba(239,68,68,0.1); border: 1px solid #ef4444; color: #ef4444; }
+    </style>
+</head>
+<body>
+    <div class="navbar">
+        <div style="display: flex; align-items: center; gap: 10px; font-weight: bold; color: var(--accent); font-size: 22px;">
+            <img src="{% static 'logo.png' %}" alt="Parki Karhabti Logo" style="height: 50px;">
+            Parki Karhabti Admin
+        </div>
+        <div style="display: flex; gap: 10px;">
+            <a href="/places/" class="btn btn-outline">View Parking Map</a>
+            <a href="/logout/" class="btn btn-danger">Logout</a>
+        </div>
+    </div>
 
-        document.getElementById('booking-modal').classList.add('open');
-    } catch(e) { console.error(e); toast('Could not load vehicles.', 'error'); }
-}
+    <div class="container">
+        <h2 style="margin-top: 0;">Dashboard Overview</h2>
+        
+        <div class="stat-grid">
+            <div class="stat-card">
+                <h3>Available Places</h3>
+                <div id="stat-available" class="stat-value" style="color: var(--accent);">-</div>
+            </div>
+            <div class="stat-card">
+                <h3>Reserved Places</h3>
+                <div id="stat-reserved" class="stat-value" style="color: #eab308;">-</div>
+            </div>
+            <div class="stat-card">
+                <h3>Occupied Places</h3>
+                <div id="stat-occupied" class="stat-value" style="color: #ef4444;">-</div>
+            </div>
+            <div class="stat-card">
+                <h3>Revenue Today</h3>
+                <div id="stat-revenue" class="stat-value" style="color: #3b82f6;">-</div>
+            </div>
+        </div>
 
-async function openBookingForPlace(placeId, placeLabel) {
-    try {
-        const resp = await fetch(`${API}/vehicles/`, { headers: H, credentials: 'same-origin' });
-        if (!resp.ok) {
-            if (resp.status === 401 || resp.status === 403) { toast('Not authorized. Please login.', 'error'); return; }
-            const txt = await resp.text().catch(()=>null);
-            console.error('Failed loading vehicles', resp.status, txt);
-            toast('Could not load vehicles.', 'error');
-            return;
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+            <div>
+                <h3>Recent Bookings</h3>
+                <table>
+                    <thead>
+                        <tr><th>ID</th><th>Plate</th><th>Place</th><th>Start</th><th>Status</th></tr>
+                    </thead>
+                    <tbody id="recent-bookings-table">
+                        <tr><td colspan="5" style="text-align: center; color: var(--muted);">Loading...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            <div>
+                <h3>Recent Sessions</h3>
+                <table>
+                    <thead>
+                        <tr><th>ID</th><th>Plate</th><th>Place</th><th>Entry</th><th>Status</th></tr>
+                    </thead>
+                    <tbody id="recent-sessions-table">
+                        <tr><td colspan="5" style="text-align: center; color: var(--muted);">Loading...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function loadAdminData() {
+            try {
+                const [stats, rev, sessions, bookings] = await Promise.all([
+                    fetch('/api/parking/places/stats/').then(r => r.json()),
+                    fetch('/api/parking/sessions/revenue/').then(r => r.json()),
+                    fetch('/api/parking/sessions/?ordering=-entry_time').then(r => r.json()),
+                    fetch('/api/parking/bookings/?ordering=-start_time').then(r => r.json())
+                ]);
+                
+                document.getElementById('stat-available').textContent = stats.available;
+                document.getElementById('stat-reserved').textContent = stats.reserved;
+                document.getElementById('stat-occupied').textContent = stats.occupied;
+                document.getElementById('stat-revenue').textContent = rev.today + ' DT';
+                
+                const sessData = sessions.results || sessions;
+                const tbody = document.getElementById('recent-sessions-table');
+                
+                if (sessData.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color: var(--muted);">No recent sessions</td></tr>';
+                } else {
+                    tbody.innerHTML = sessData.slice(0, 10).map(s => `
+                        <tr>
+                            <td style="color: var(--muted);">#${s.id}</td>
+                            <td><strong>${s.vehicle_plate || '—'}</strong></td>
+                            <td>${s.place_number || '—'}</td>
+                            <td>${new Date(s.entry_time).toLocaleString()}</td>
+                            <td>${s.is_active ? '<span style="color:var(--accent);">Active</span>' : '<span style="color:#ef4444;">Closed</span>'}</td>
+                        </tr>
+                    `).join('');
+                }
+                
+                const bookData = bookings.results || bookings;
+                const bookTbody = document.getElementById('recent-bookings-table');
+                
+                if (bookData.length === 0) {
+                    bookTbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color: var(--muted);">No recent bookings</td></tr>';
+                } else {
+                    bookTbody.innerHTML = bookData.slice(0, 10).map(b => `
+                        <tr>
+                            <td style="color: var(--muted);">#${b.id}</td>
+                            <td><strong>${b.vehicle_plate || '—'}</strong></td>
+                            <td>${b.place_number || '—'}</td>
+                            <td>${new Date(b.start_time).toLocaleString()}</td>
+                            <td>${b.status === 'confirmed' ? '<span style="color:var(--accent);">Confirmed</span>' : '<span style="color:#eab308;">' + b.status + '</span>'}</td>
+                        </tr>
+                    `).join('');
+                }
+            } catch(e) { console.error('Failed to load dashboard data:', e); }
         }
-        const data = await resp.json();
-        const vehicles = data.results || data;
-        const select = document.getElementById('book-vehicle');
-        if (!vehicles.length) {
-            toast('You must add a vehicle first!', 'error');
-            window.showTab('vehicles');
-            return;
-        }
-        select.innerHTML = vehicles.map(v => `<option value="${v.id}">${v.plate_number} (${v.brand})</option>`).join('');
-        const start = new Date();
-        start.setMinutes(start.getMinutes() + 15 - (start.getMinutes() % 15));
-        start.setSeconds(0);
-        start.setMilliseconds(0);
-        const end = new Date(start.getTime() + (60 * 60 * 1000));
-        const tzOffset = new Date().getTimezoneOffset() * 60000;
-        document.getElementById('book-start').value = new Date(start.getTime() - tzOffset).toISOString().slice(0,16);
-        document.getElementById('book-end').value = new Date(end.getTime() - tzOffset).toISOString().slice(0,16);
-
-        // Set selected place info and hidden input
-        const info = document.getElementById('booking-place-info');
-        info.innerHTML = `Selected place: <strong>${placeLabel}</strong>`;
-        document.getElementById('book-parking-place').value = placeId;
-
-        document.getElementById('booking-modal').classList.add('open');
-    } catch(e) { console.error(e); toast('Could not load vehicles.', 'error'); }
-}
-
-async function submitBooking() {
-    const startInput = document.getElementById('book-start').value;
-    const endInput = document.getElementById('book-end').value;
-    const vehicleInput = document.getElementById('book-vehicle').value;
-    if (!vehicleInput || !startInput || !endInput) return toast('All fields are required.', 'error');
-
-    const body = {
-        vehicle: vehicleInput,
-        start_time: new Date(startInput).toISOString(),
-        end_time: new Date(endInput).toISOString(),
-    };
-    const selectedPlace = document.getElementById('book-parking-place').value;
-    if (selectedPlace) body.parking_place = selectedPlace;
-    try {
-        const r = await fetch(`${API}/bookings/`, { method: 'POST', headers: H, body: JSON.stringify(body) });
-        const d = await r.json();
-        if (r.ok) {
-            toast('Booking successful!', 'success');
-            closeModal('booking-modal');
-            loadMyBookings();
-            showBookingQR(d.id, d);
-        } else { toast(d.error || JSON.stringify(d), 'error'); }
-    } catch(e) { toast('Error: '+e, 'error'); }
-}
-
-async function showBookingQR(bookingId, bookingData = null) {
-    try {
-        const booking = bookingData || await fetch(`${API}/bookings/${bookingId}/`).then(r=>r.json());
-        if (booking.qr_code) {
-            document.getElementById('booking-qr-image').src = booking.qr_code + '?t=' + Date.now();
-            document.getElementById('booking-qr-info').innerHTML = `
-                <div style="margin-bottom:6px;"><strong style="color:var(--accent)">Booking #${booking.id}</strong></div>
-                <div>🚗 <strong>${booking.vehicle_plate}</strong></div>
-                <div>📍 Place <strong>${booking.place_number || '—'}</strong></div>
-                <div><strong class="text-green">FROM:</strong> ${new Date(booking.start_time).toLocaleString('fr-FR')}</div>
-                <div><strong class="text-red">TO:</strong> ${new Date(booking.end_time).toLocaleString('fr-FR')}</div>
-                <div style="margin-top:8px;font-size:16px;">Est. Price: <strong class="text-accent">${booking.estimated_price} DT</strong></div>
-            `;
-            document.getElementById('booking-qr-modal').classList.add('open');
-        } else { toast('QR code not available for this booking.', 'info'); }
-    } catch(e) { toast('Could not load booking details.', 'error'); }
-}
-
-// =================== OVERRIDE showTab TO LOAD DATA ===================
-const originalShowTab = window.showTab;
-window.showTab = function(name, el) {
-    document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
-    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-    const tab = document.getElementById('tab-' + name);
-    if (tab) tab.classList.add('active');
-    if (el) el.classList.add('active');
-    // Load data for tab
-    const loaders = {
-        dashboard: loadDashboard,
-        map: loadParkingMap,
-        sessions: loadActiveSessions,
-        vehicles: loadVehicles,
-        subscriptions: loadSubscriptions,
-        alerts: loadAlerts,
-        tariffs: loadTariffs,
-        'places-mgmt': loadPlaces,
-        bookings: loadMyBookings,
-    };
-    if (loaders[name]) loaders[name]();
-};
-
-// Override refreshAll
-window.refreshAll = function() {
-    loadDashboard();
-    loadActiveSessions();
-    loadParkingMap();
-    loadAlerts();
-};
-
-// Init
-loadDashboard();
-loadAlerts();
-</script>
-{% endblock %}
+        loadAdminData();
+    </script>
+</body>
+</html>

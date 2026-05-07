@@ -228,6 +228,15 @@ def create_booking(user, vehicle, start_time, end_time, parking_place=None):
     estimated_price = min(price, daily_max * days)
 
     # 4. Create the booking instance
+    # Mark the place as reserved for this booking to keep UI/DB in sync
+    try:
+        place_to_book.is_reserved = True
+        place_to_book.reserved_by = user
+        place_to_book.save()
+    except Exception:
+        # If saving the place fails for any reason, rollback via the outer transaction
+        raise
+
     booking = Booking.objects.create(
         user=user, vehicle=vehicle, start_time=start_time, end_time=end_time,
         parking_place=place_to_book, estimated_price=estimated_price

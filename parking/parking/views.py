@@ -5,7 +5,6 @@ from rest_framework.response import Response
 from django.db.models import Sum, Count, Q
 from django.utils import timezone
 from django.shortcuts import render, redirect
-from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth import get_user_model
 from rest_framework.exceptions import ValidationError
@@ -23,69 +22,16 @@ from .parking_service import create_entry_session, close_session, create_booking
 User = get_user_model()
 
 
-@api_view(['GET', 'POST'])
-def login_view(request):
-    if request.method == 'POST':
-        email = request.data.get('email') or request.POST.get('email')
-        password = request.data.get('password') or request.POST.get('password')
-        user = authenticate(request, email=email, password=password)
-        if user is not None:
-            login(request, user)
-            return redirect('/')
-        return render(request, 'login.html', {'error': 'Invalid credentials. Please try again.'})
-    return render(request, 'login.html')
-
-
-@api_view(['GET', 'POST'])
-def register_view(request):
-    if request.user.is_authenticated:
-        return redirect('/')
-
-    if request.method == 'POST':
-        email = request.data.get('email') or request.POST.get('email')
-        password = request.data.get('password') or request.POST.get('password')
-        password2 = request.data.get('password2') or request.POST.get('password2')
-        full_name = request.data.get('full_name') or request.POST.get('full_name')
-        company_name = request.data.get('company_name') or request.POST.get('company_name')
-        role = request.data.get('role') or request.POST.get('role') or 'client'
-
-        if not all([email, password, password2, full_name]):
-            return render(request, 'register.html', {'error': 'All fields are required.'})
-
-        if password != password2:
-            return render(request, 'register.html', {'error': 'Passwords do not match.'})
-
-        if User.objects.filter(email=email).exists():
-            return render(request, 'register.html', {'error': 'An account with this email already exists.'})
-
-        # Handle company association:
-        company = None
-        if company_name:
-            from users.models import Company
-            if role == 'admin':
-                # Admin can create a new company (or get existing)
-                company, _ = Company.objects.get_or_create(name=company_name)
-            else:
-                # Clients/agents must join an existing company by name
-                try:
-                    company = Company.objects.get(name__iexact=company_name)
-                except Company.DoesNotExist:
-                    return render(request, 'register.html', {'error': 'Company not found. Ask your company admin to provide the exact company name or register as company admin.',})
-
-        user = User.objects.create_user(email=email, password=password, full_name=full_name, role=role, company=company)
-        return redirect('/login/?success=1')
-
-    return render(request, 'register.html')
-
-
-def logout_view(request):
-    logout(request)
-    return redirect('/login/')
-
-
 @login_required(login_url='/login/')
 def dashboard_view(request):
-    return render(request, 'dashboard.html')
+    # Route Admins/Agents to the Admin Dashboard, Clients to the Parking Places map
+    if request.user.role in ['admin', 'agent'] or request.user.is_superuser:
+        return render(request, 'dashboard.html')
+    return redirect('/places/')
+
+@login_required(login_url='/login/')
+def parking_places_view(request):
+    return render(request, 'parking_places.html')
 
 
 class ParkingPlaceViewSet(viewsets.ModelViewSet):
@@ -261,11 +207,32 @@ class VehicleViewSet(viewsets.ModelViewSet):
     queryset = Vehicle.objects.select_related('owner').all()
     serializer_class = VehicleSerializer
 
+    def perform_create(self, serializer):
+        # Ensure the owner is always the requesting user
+        serializer.save(owner=self.request.user)
+    
+    def perform_update(self, serializer):
+        # Prevent clients from changing the owner; always set to the requesting user
+        serializer.save(owner=self.request.user)
+
+    def perform_destroy(self, instance):
+        # Allow deletion only by the owner or admin users
+        from rest_framework.exceptions import PermissionDenied
+        if getattr(instance, 'owner', None) != self.request.user and getattr(self.request.user, 'role', None) != 'admin':
+            raise PermissionDenied('You are not allowed to delete this vehicle.')
+        return super().perform_destroy(instance)
+
     def get_queryset(self):
         qs = super().get_queryset()
-        if self.request.user.role == 'client':
-            return qs.filter(owner=self.request.user)
-        return qs
+        user = self.request.user
+        if user.is_superuser:
+            return qs
+        if user.role == 'client':
+            return qs.filter(owner=user)
+        company = getattr(user, 'company', None)
+        if company:
+            return qs.filter(owner__company=company)
+        return qs.none()
 
     @action(detail=True, methods=['get'])
     def history(self, request, pk=None):
@@ -286,6 +253,16 @@ class VehicleViewSet(viewsets.ModelViewSet):
 class ParkingSessionViewSet(viewsets.ModelViewSet):
     queryset = ParkingSession.objects.select_related('vehicle', 'parking_place').all()
     serializer_class = ParkingSessionSerializer
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        user = self.request.user
+        if user.is_superuser:
+            return qs
+        company = getattr(user, 'company', None)
+        if company:
+            return qs.filter(parking_place__company=company)
+        return qs.filter(vehicle__owner=user)
 
     @action(detail=False, methods=['get'])
     def active(self, request):
@@ -389,15 +366,16 @@ class ParkingSessionViewSet(viewsets.ModelViewSet):
     def revenue(self, request):
         today = timezone.now().date()
         first_of_month = today.replace(day=1)
-        revenue_today = ParkingSession.objects.filter(
-            is_active=False, exit_time__date=today
+        
+        qs = self.get_queryset().filter(is_active=False)
+        
+        revenue_today = qs.filter(
+            exit_time__date=today
         ).aggregate(total=Sum('total_price'))['total'] or Decimal('0')
-        revenue_month = ParkingSession.objects.filter(
-            is_active=False, exit_time__date__gte=first_of_month
+        revenue_month = qs.filter(
+            exit_time__date__gte=first_of_month
         ).aggregate(total=Sum('total_price'))['total'] or Decimal('0')
-        revenue_total = ParkingSession.objects.filter(
-            is_active=False
-        ).aggregate(total=Sum('total_price'))['total'] or Decimal('0')
+        revenue_total = qs.aggregate(total=Sum('total_price'))['total'] or Decimal('0')
         return Response({
             'today': str(revenue_today),
             'month': str(revenue_month),
@@ -470,9 +448,15 @@ class BookingViewSet(viewsets.ModelViewSet):
         user = self.request.user
         if not user.is_authenticated:
             return Booking.objects.none()
+        if user.is_superuser:
+            return Booking.objects.all().select_related('user', 'vehicle', 'parking_place')
+            
         if user.role == 'client':
             return Booking.objects.filter(user=user).select_related('vehicle', 'parking_place')
-        return Booking.objects.all().select_related('user', 'vehicle', 'parking_place')
+        company = getattr(user, 'company', None)
+        if company:
+            return Booking.objects.filter(parking_place__company=company).select_related('user', 'vehicle', 'parking_place')
+        return Booking.objects.none()
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -492,3 +476,38 @@ class BookingViewSet(viewsets.ModelViewSet):
 
         response_serializer = self.serializer_class(booking, context={'request': request})
         return Response(response_serializer.data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['get'])
+    def invoice(self, request, pk=None):
+        """Generate a PDF ticket/facture for a booking."""
+        booking = self.get_object()
+
+        try:
+            from reportlab.lib.pagesizes import A4
+            from reportlab.pdfgen import canvas
+        except ImportError:
+            return Response({'error': 'PDF generation library not available. Install with: pip install reportlab'}, status=500)
+
+        from io import BytesIO
+        buffer = BytesIO()
+        c = canvas.Canvas(buffer, pagesize=A4)
+        text = c.beginText(40, 800)
+        text.setFont('Helvetica', 12)
+        text.textLine('Parking Booking Facture')
+        text.textLine('')
+        text.textLine(f'Booking ID: {booking.id}')
+        text.textLine(f'User: {booking.user.full_name} ({booking.user.email})')
+        text.textLine(f'Plate: {booking.vehicle.plate_number}')
+        text.textLine(f'Vehicle: {booking.vehicle.brand} {booking.vehicle.model}')
+        text.textLine(f'Place: {booking.parking_place.number if booking.parking_place else "Any"}')
+        text.textLine(f'From: {booking.start_time.strftime("%Y-%m-%d %H:%M")}')
+        text.textLine(f'To: {booking.end_time.strftime("%Y-%m-%d %H:%M")}')
+        text.textLine(f'Estimated Price: {booking.estimated_price} DT')
+        text.textLine(f'Status: {booking.status}')
+        c.drawText(text)
+        c.showPage()
+        c.save()
+        buffer.seek(0)
+
+        from django.http import FileResponse
+        return FileResponse(buffer, as_attachment=True, filename=f'facture_booking_{booking.id}.pdf')
