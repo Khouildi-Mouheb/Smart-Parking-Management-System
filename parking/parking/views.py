@@ -42,14 +42,9 @@ class ParkingSessionViewSet(viewsets.ModelViewSet):
             return Response(ParkingSessionSerializer(session).data, status=status.HTTP_201_CREATED)
         except Vehicle.DoesNotExist:
             return Response({'detail': 'Vehicle not found.'}, status=status.HTTP_404_NOT_FOUND)
-        except Exception as e:
-            return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
     @action(detail=True, methods=['post'])
     def exit(self, request, pk=None):
         """Registers a vehicle's exit, computes total cost, and frees the parking place."""
-        try:
-            session = close_session(pk)
-            return Response(ParkingSessionSerializer(session).data, status=status.HTTP_200_OK)
-        except Exception as e:
-            return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        session = close_session(pk)
+        return Response(ParkingSessionSerializer(session).data, status=status.HTTP_200_OK)

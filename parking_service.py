@@ -1,4 +1,5 @@
 import math
+from decimal import Decimal
 from django.utils import timezone
 from django.db import transaction
 from rest_framework.exceptions import ValidationError
@@ -45,7 +46,7 @@ def close_session(session_id):
     # Calculate pricing based on hours
     duration = session.exit_time - session.entry_time
     hours = max(1, math.ceil(duration.total_seconds() / 3600.0)) # At least 1 hour
-    session.total_price = 2.00 if hours <= 1 else 2.00 + (hours - 1) * 1.00
+    session.total_price = Decimal('2.00') if hours <= 1 else Decimal('2.00') + Decimal(hours - 1) * Decimal('1.00')
 
     # Free up the parking place
     if session.parking_place:
