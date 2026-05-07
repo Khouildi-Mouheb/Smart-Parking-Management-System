@@ -21,4 +21,4 @@ class ParkingSessionSerializer(serializers.ModelSerializer):
 
 class SessionEntrySerializer(serializers.Serializer):
     """Serializer specifically for triggering an entry action."""
-    vehicle_id = serializers.IntegerField()
+    vehicle_id = serializers.PrimaryKeyRelatedField(queryset=Vehicle.objects.all())
