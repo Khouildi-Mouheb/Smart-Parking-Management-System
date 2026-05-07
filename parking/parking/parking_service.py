@@ -3,7 +3,7 @@ from decimal import Decimal
 from django.utils import timezone
 from django.db import transaction
 from rest_framework.exceptions import ValidationError
-from ..models import ParkingPlace, ParkingSession, Vehicle
+from .models import ParkingPlace, ParkingSession, Vehicle
 
 def assign_free_place():
     """Finds and returns the first available parking place."""
