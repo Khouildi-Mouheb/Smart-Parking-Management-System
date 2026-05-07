@@ -16,6 +16,7 @@ class ParkingPlace(models.Model):
     place_type = models.CharField(max_length=20, choices=PLACE_TYPES, default='standard')
     is_occupied = models.BooleanField(default=False)
     is_reserved = models.BooleanField(default=False)
+    reserved_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='reserved_places')
     hourly_rate = models.DecimalField(max_digits=6, decimal_places=2, default=2.00)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -185,3 +186,28 @@ class Tariff(models.Model):
 
     def __str__(self):
         return f"{self.name} - {self.place_type}"
+
+
+class Booking(models.Model):
+    STATUS_CHOICES = (
+        ('confirmed', 'Confirmed'),
+        ('active', 'Active'),
+        ('completed', 'Completed'),
+        ('cancelled', 'Cancelled'),
+    )
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='bookings')
+    vehicle = models.ForeignKey('Vehicle', on_delete=models.CASCADE, related_name='bookings')
+    parking_place = models.ForeignKey('ParkingPlace', on_delete=models.SET_NULL, null=True, blank=True, related_name='bookings')
+    start_time = models.DateTimeField()
+    end_time = models.DateTimeField()
+    estimated_price = models.DecimalField(max_digits=8, decimal_places=2)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='confirmed')
+    qr_code = models.ImageField(upload_to='qrcodes/bookings/', blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    parking_session = models.OneToOneField('ParkingSession', on_delete=models.SET_NULL, null=True, blank=True, related_name='booking')
+
+    class Meta:
+        ordering = ['-start_time']
+
+    def __str__(self):
+        return f"Booking for {self.user.email} from {self.start_time.strftime('%Y-%m-%d %H:%M')}"

@@ -6,7 +6,7 @@ from django.utils import timezone
 from django.db import transaction
 from django.core.files.base import ContentFile
 from rest_framework.exceptions import ValidationError
-from .models import ParkingPlace, ParkingSession, Vehicle, Tariff, ParkingAlert, Subscription
+from .models import ParkingPlace, ParkingSession, Vehicle, Tariff, ParkingAlert, Subscription, Booking
 
 
 def assign_free_place(place_type='standard'):
@@ -66,6 +66,28 @@ def generate_qr_code(session):
     img.save(buffer, format="PNG")
     session.qr_code.save(f"session_{session.id}_qr.png", ContentFile(buffer.getvalue()), save=True)
     return session
+
+
+def generate_booking_qr_code(booking):
+    """Generates a QR code for the booking."""
+    qr_data = (
+        f"=== PARKING BOOKING ===\n"
+        f"Booking ID: {booking.id}\n"
+        f"User: {booking.user.full_name}\n"
+        f"Plate: {booking.vehicle.plate_number}\n"
+        f"Place: {booking.parking_place.number} (Floor {booking.parking_place.floor})\n"
+        f"From: {booking.start_time.strftime('%Y-%m-%d %H:%M')}\n"
+        f"To: {booking.end_time.strftime('%Y-%m-%d %H:%M')}\n"
+        f"Price: {booking.estimated_price} DT\n"
+    )
+    qr = qrcode.QRCode(version=2, box_size=10, border=4)
+    qr.add_data(qr_data)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white")
+    buffer = BytesIO()
+    img.save(buffer, format="PNG")
+    booking.qr_code.save(f"booking_{booking.id}_qr.png", ContentFile(buffer.getvalue()), save=True)
+    return booking
 
 
 def check_and_create_alerts():
@@ -139,6 +161,61 @@ def create_entry_session(vehicle, notes=''):
     generate_qr_code(session)
     check_and_create_alerts()
     return session
+
+
+@transaction.atomic
+def create_booking(user, vehicle, start_time, end_time):
+    """
+    Creates a booking for a user, finds a spot, calculates price, and returns the booking.
+    """
+    # 1. Validate times
+    if start_time >= end_time:
+        raise ValidationError("End time must be after start time.")
+    if start_time < timezone.now():
+        raise ValidationError("Booking start time cannot be in the past.")
+
+    # 2. Find an available parking place
+    conflicting_bookings = Booking.objects.filter(
+        status__in=['confirmed', 'active'],
+        start_time__lt=end_time,
+        end_time__gt=start_time
+    ).values_list('parking_place_id', flat=True)
+
+    place_to_book = ParkingPlace.objects.exclude(
+        id__in=conflicting_bookings
+    ).filter(is_occupied=False).order_by('floor', 'number').first()
+
+    if not place_to_book:
+        raise ValidationError("No available places for the selected time slot. Please try another time.")
+
+    # 3. Calculate estimated price
+    duration = end_time - start_time
+    hours = max(1, math.ceil(duration.total_seconds() / 3600.0))
+    
+    tariff = Tariff.objects.filter(place_type=place_to_book.place_type, is_active=True).first()
+    if not tariff: # Fallback to standard
+        tariff = Tariff.objects.filter(place_type='standard', is_active=True).first()
+    
+    if hours <= 1:
+        price = tariff.base_rate if tariff else Decimal('2.00')
+    else:
+        base = tariff.base_rate if tariff else Decimal('2.00')
+        hourly = tariff.hourly_rate if tariff else Decimal('1.50')
+        price = base + Decimal(hours - 1) * hourly
+    
+    days = max(1, math.ceil(duration.total_seconds() / 86400.0))
+    daily_max = tariff.daily_max if tariff else Decimal('20.00')
+    estimated_price = min(price, daily_max * days)
+
+    # 4. Create the booking instance
+    booking = Booking.objects.create(
+        user=user, vehicle=vehicle, start_time=start_time, end_time=end_time,
+        parking_place=place_to_book, estimated_price=estimated_price
+    )
+
+    # 5. Generate QR code
+    generate_booking_qr_code(booking)
+    return booking
 
 
 @transaction.atomic

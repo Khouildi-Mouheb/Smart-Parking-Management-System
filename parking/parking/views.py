@@ -4,18 +4,70 @@ from rest_framework.decorators import action, api_view
 from rest_framework.response import Response
 from django.db.models import Sum, Count, Q
 from django.utils import timezone
-from django.shortcuts import render
+from django.shortcuts import render, redirect
+from django.contrib.auth import authenticate, login, logout
+from django.contrib.auth.decorators import login_required
+from django.contrib.auth import get_user_model
+from rest_framework.exceptions import ValidationError
 from decimal import Decimal
 
-from .models import ParkingPlace, Vehicle, ParkingSession, Subscription, ParkingAlert, Tariff
+from .models import ParkingPlace, Vehicle, ParkingSession, Subscription, ParkingAlert, Tariff, Booking
 from .serializers import (
     ParkingPlaceSerializer, VehicleSerializer, ParkingSessionSerializer,
     SessionEntrySerializer, SubscriptionSerializer, ParkingAlertSerializer,
-    TariffSerializer
+    TariffSerializer, BookingSerializer, BookingCreateSerializer
 )
-from .parking_service import create_entry_session, close_session
+from .parking_service import create_entry_session, close_session, create_booking
 
 
+User = get_user_model()
+
+
+@api_view(['GET', 'POST'])
+def login_view(request):
+    if request.method == 'POST':
+        email = request.data.get('email') or request.POST.get('email')
+        password = request.data.get('password') or request.POST.get('password')
+        user = authenticate(request, email=email, password=password)
+        if user is not None:
+            login(request, user)
+            return redirect('/')
+        return render(request, 'login.html', {'error': 'Invalid credentials. Please try again.'})
+    return render(request, 'login.html')
+
+
+@api_view(['GET', 'POST'])
+def register_view(request):
+    if request.user.is_authenticated:
+        return redirect('/')
+
+    if request.method == 'POST':
+        email = request.data.get('email') or request.POST.get('email')
+        password = request.data.get('password') or request.POST.get('password')
+        password2 = request.data.get('password2') or request.POST.get('password2')
+        full_name = request.data.get('full_name') or request.POST.get('full_name')
+
+        if not all([email, password, password2, full_name]):
+            return render(request, 'register.html', {'error': 'All fields are required.'})
+
+        if password != password2:
+            return render(request, 'register.html', {'error': 'Passwords do not match.'})
+
+        if User.objects.filter(email=email).exists():
+            return render(request, 'register.html', {'error': 'An account with this email already exists.'})
+
+        User.objects.create_user(email=email, password=password, full_name=full_name)
+        return redirect('/login/?success=1')
+
+    return render(request, 'register.html')
+
+
+def logout_view(request):
+    logout(request)
+    return redirect('/login/')
+
+
+@login_required(login_url='/login/')
 def dashboard_view(request):
     return render(request, 'dashboard.html')
 
@@ -78,10 +130,36 @@ class ParkingPlaceViewSet(viewsets.ModelViewSet):
             'by_type': by_type,
         })
 
+    @action(detail=True, methods=['post'])
+    def reserve(self, request, pk=None):
+        place = self.get_object()
+        if place.is_occupied or place.is_reserved:
+            return Response({'error': 'Place is not available for reservation.'}, status=status.HTTP_400_BAD_REQUEST)
+        place.is_reserved = True
+        place.reserved_by = request.user
+        place.save()
+        return Response({'status': 'reserved'})
+
+    @action(detail=True, methods=['post'])
+    def unreserve(self, request, pk=None):
+        place = self.get_object()
+        if place.reserved_by != request.user and request.user.role != 'admin':
+            return Response({'error': 'Not authorized to cancel this reservation.'}, status=status.HTTP_403_FORBIDDEN)
+        place.is_reserved = False
+        place.reserved_by = None
+        place.save()
+        return Response({'status': 'unreserved'})
+
 
 class VehicleViewSet(viewsets.ModelViewSet):
     queryset = Vehicle.objects.select_related('owner').all()
     serializer_class = VehicleSerializer
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        if self.request.user.role == 'client':
+            return qs.filter(owner=self.request.user)
+        return qs
 
     @action(detail=True, methods=['get'])
     def history(self, request, pk=None):
@@ -227,3 +305,37 @@ class ParkingAlertViewSet(viewsets.ModelViewSet):
 class TariffViewSet(viewsets.ModelViewSet):
     queryset = Tariff.objects.all()
     serializer_class = TariffSerializer
+
+
+class BookingViewSet(viewsets.ModelViewSet):
+    queryset = Booking.objects.all()
+    serializer_class = BookingSerializer
+
+    def get_serializer_class(self):
+        if self.action == 'create':
+            return BookingCreateSerializer
+        return BookingSerializer
+
+    def get_queryset(self):
+        user = self.request.user
+        if not user.is_authenticated:
+            return Booking.objects.none()
+        if user.role == 'client':
+            return Booking.objects.filter(user=user).select_related('vehicle', 'parking_place')
+        return Booking.objects.all().select_related('user', 'vehicle', 'parking_place')
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        vehicle = serializer.validated_data['vehicle']
+        if request.user.role == 'client' and vehicle.owner != request.user:
+            return Response({'error': 'You can only book for your own vehicles.'}, status=status.HTTP_403_FORBIDDEN)
+
+        try:
+            booking = create_booking(user=request.user, **serializer.validated_data)
+        except ValidationError as e:
+            return Response({'error': e.detail[0]}, status=status.HTTP_400_BAD_REQUEST)
+
+        response_serializer = self.serializer_class(booking, context={'request': request})
+        return Response(response_serializer.data, status=status.HTTP_201_CREATED)

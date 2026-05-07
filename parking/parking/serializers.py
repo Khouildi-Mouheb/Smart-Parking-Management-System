@@ -1,6 +1,8 @@
 from rest_framework import serializers
-from .models import ParkingPlace, Vehicle, ParkingSession, Subscription, ParkingAlert, Tariff
 from django.contrib.auth import get_user_model
+from datetime import timedelta
+from django.utils import timezone
+from .models import ParkingPlace, Vehicle, ParkingSession, Subscription, ParkingAlert, Tariff, Booking
 
 User = get_user_model()
 
@@ -74,3 +76,27 @@ class DashboardStatsSerializer(serializers.Serializer):
     unread_alerts = serializers.IntegerField()
     by_floor = serializers.ListField()
     by_type = serializers.ListField()
+
+
+class BookingSerializer(serializers.ModelSerializer):
+    user_email = serializers.CharField(source='user.email', read_only=True)
+    vehicle_plate = serializers.CharField(source='vehicle.plate_number', read_only=True)
+    place_number = serializers.CharField(source='parking_place.number', read_only=True)
+
+    class Meta:
+        model = Booking
+        fields = '__all__'
+
+
+class BookingCreateSerializer(serializers.Serializer):
+    vehicle = serializers.PrimaryKeyRelatedField(queryset=Vehicle.objects.all())
+    start_time = serializers.DateTimeField()
+    end_time = serializers.DateTimeField()
+
+    def validate(self, data):
+        if data['start_time'] >= data['end_time']:
+            raise serializers.ValidationError("End time must be after start time.")
+        # Allow a 5-minute buffer in case the user selects the exact current minute
+        if data['start_time'] < timezone.now() - timedelta(minutes=5):
+            raise serializers.ValidationError("Booking start time cannot be in the past.")
+        return data
