@@ -1,0 +1,158 @@
+{% extends 'base.html' %}
+
+{% block title %}Tableau de Bord{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-md-12">
+        <div class="card shadow-sm border-0">
+            <div class="card-header bg-warning text-dark">
+                <h5 class="mb-0">📥 Nouvelle Entrée (Demander une place)</h5>
+            </div>
+            <div class="card-body d-flex gap-2">
+                <input type="number" id="vehicle-id-input" class="form-control" placeholder="ID du véhicule (ex: 1)" style="max-width: 300px;">
+                <button class="btn btn-dark" onclick="requestPlace()">Faire entrer le véhicule</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <!-- Places Disponibles -->
+    <div class="col-md-6 mb-4">
+        <div class="card shadow-sm">
+            <div class="card-header bg-success text-white">
+                <h5 class="mb-0">✅ Places Disponibles</h5>
+            </div>
+            <div class="card-body">
+                <ul class="list-group" id="available-places-list">
+                    <li class="list-group-item text-muted">Chargement des places...</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sessions Actives -->
+    <div class="col-md-6 mb-4">
+        <div class="card shadow-sm">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0">🚗 Véhicules Garés (Sessions Actives)</h5>
+            </div>
+            <div class="card-body">
+                <ul class="list-group" id="active-sessions-list">
+                    <li class="list-group-item text-muted">Chargement des sessions...</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // Fonction pour charger les places disponibles depuis l'API DRF
+    async function fetchAvailablePlaces() {
+        try {
+            const response = await fetch('/api/parking/places/available/');
+            const data = await response.json();
+            const list = document.getElementById('available-places-list');
+            list.innerHTML = ''; // Vider la liste
+            
+            if(data.results) { // Pour gérer la pagination DRF si elle est activée
+                data = data.results;
+            }
+
+            if(data.length === 0) {
+                list.innerHTML = '<li class="list-group-item text-danger">Aucune place disponible !</li>';
+                return;
+            }
+
+            data.forEach(place => {
+                list.innerHTML += `<li class="list-group-item d-flex justify-content-between align-items-center">
+                    Place ${place.number}
+                    <span class="badge bg-secondary rounded-pill">Étage ${place.floor}</span>
+                </li>`;
+            });
+        } catch (error) {
+            console.error("Erreur lors du chargement des places:", error);
+        }
+    }
+
+    // Fonction pour charger les sessions actives (API)
+    async function fetchActiveSessions() {
+        try {
+            const response = await fetch('/api/parking/sessions/active/');
+            let data = await response.json();
+            const list = document.getElementById('active-sessions-list');
+            list.innerHTML = '';
+            
+            if(data.results) { // Pour gérer la pagination DRF
+                data = data.results;
+            }
+
+            if(data.length === 0) {
+                list.innerHTML = '<li class="list-group-item text-muted">Aucune session active.</li>';
+                return;
+            }
+
+            data.forEach(session => {
+                list.innerHTML += `<li class="list-group-item d-flex justify-content-between align-items-center">
+                    Véhicule ID: ${session.vehicle}
+                    <span class="badge bg-primary rounded-pill">Place ID: ${session.parking_place}</span>
+                </li>`;
+            });
+        } catch (error) {
+            console.error("Erreur lors du chargement des sessions:", error);
+        }
+    }
+
+    // Fonction pour récupérer le token CSRF de Django
+    function getCookie(name) {
+        let cookieValue = null;
+        if (document.cookie && document.cookie !== '') {
+            const cookies = document.cookie.split(';');
+            for (let i = 0; i < cookies.length; i++) {
+                const cookie = cookies[i].trim();
+                if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                    cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                    break;
+                }
+            }
+        }
+        return cookieValue;
+    }
+
+    // Demander une place (Simuler l'entrée)
+    async function requestPlace() {
+        const vehicleId = document.getElementById('vehicle-id-input').value;
+        if(!vehicleId) return alert("Veuillez entrer un ID de véhicule !");
+        
+        try {
+            const response = await fetch('/api/parking/sessions/entry/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': getCookie('csrftoken')
+                },
+                body: JSON.stringify({ vehicle_id: vehicleId })
+            });
+            const data = await response.json();
+            
+            if(response.ok) {
+                alert("✅ Place assignée avec succès ! (Session " + data.id + ")");
+                // Recharger les listes pour mettre à jour l'affichage
+                fetchAvailablePlaces();
+                fetchActiveSessions();
+            } else {
+                alert("❌ Erreur: " + JSON.stringify(data));
+            }
+        } catch (error) {
+            console.error("Erreur lors de la requête:", error);
+        }
+    }
+
+    // Charger les données au démarrage
+    fetchAvailablePlaces();
+    fetchActiveSessions();
+</script>
+{% endblock %}
