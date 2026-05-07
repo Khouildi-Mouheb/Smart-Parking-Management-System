@@ -16,7 +16,7 @@ class ParkingSessionSerializer(serializers.ModelSerializer):
     class Meta:
         model = ParkingSession
         fields = '__all__'
-        read_only_fields = ('entry_time', 'exit_time', 'total_price', 'is_active')
+        read_only_fields = ('entry_time', 'exit_time', 'total_price', 'is_active', 'qr_code')
 
 
 class SessionEntrySerializer(serializers.Serializer):

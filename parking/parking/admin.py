@@ -20,5 +20,5 @@ class ParkingSessionAdmin(admin.ModelAdmin):
     list_display = ('vehicle', 'parking_place', 'entry_time', 'exit_time', 'is_active', 'total_price')
     list_filter = ('is_active', 'entry_time')
     search_fields = ('vehicle__plate_number', 'parking_place__number')
-    readonly_fields = ('entry_time', 'exit_time', 'total_price')
+    readonly_fields = ('entry_time', 'exit_time', 'total_price', 'qr_code')
     ordering = ('-entry_time',)

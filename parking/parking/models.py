@@ -37,6 +37,7 @@ class ParkingSession(models.Model):
     exit_time = models.DateTimeField(null=True, blank=True)
     total_price = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True)
     is_active = models.BooleanField(default=True)
+    qr_code = models.ImageField(upload_to='qrcodes/', blank=True, null=True)
 
     class Meta:
         ordering = ['-entry_time']

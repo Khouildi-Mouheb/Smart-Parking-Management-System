@@ -1,9 +1,12 @@
 import math
+import qrcode
+from io import BytesIO
 from decimal import Decimal
 from django.utils import timezone
 from django.db import transaction
+from django.core.files.base import ContentFile
 from rest_framework.exceptions import ValidationError
-from .models import ParkingPlace, ParkingSession, Vehicle
+from parking.models import ParkingPlace, ParkingSession, Vehicle
 
 def assign_free_place():
     """Finds and returns the first available parking place."""
@@ -29,6 +32,18 @@ def create_entry_session(vehicle):
         parking_place=place,
         is_active=True
     )
+
+    # Génération du QR Code
+    qr_data = f"Session: {session.id} | Plaque: {vehicle.plate_number} | Place: {place.number} (Etage {place.floor}) | Entree: {session.entry_time.strftime('%Y-%m-%d %H:%M')}"
+    qr = qrcode.QRCode(version=1, box_size=10, border=4)
+    qr.add_data(qr_data)
+    qr.make(fit=True)
+    
+    img = qr.make_image(fill_color="black", back_color="white")
+    buffer = BytesIO()
+    img.save(buffer, format="PNG")
+    session.qr_code.save(f"session_{session.id}_qr.png", ContentFile(buffer.getvalue()), save=True)
+
     return session
 
 @transaction.atomic
